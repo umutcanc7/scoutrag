@@ -9,9 +9,20 @@ from __future__ import annotations
 import os
 import re
 import pickle
+import unicodedata
 
 import numpy as np
 import pandas as pd
+
+
+def _strip_accents(s: str) -> str:
+    """Lower-case and remove diacritics so 'Beşiktaş' == 'besiktas'."""
+    s = unicodedata.normalize("NFKD", str(s))
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    # Turkish dotless/dotted i and a few stragglers NFKD leaves alone
+    s = (s.replace("ı", "i").replace("İ", "i").replace("ş", "s")
+          .replace("ğ", "g").replace("ø", "o").replace("ß", "ss"))
+    return s.lower().strip()
 
 # --------------------------------------------------------------------------- #
 # Constants
@@ -213,8 +224,20 @@ def align_embeddings(df, pkl_path: str):
 def build_profiles(df):
     df = df.copy()
     df["profile"] = df.apply(_build_profile, axis=1)
+    # Name-free text used for embeddings, so vector similarity captures
+    # play-style (position, foot, style, attributes) rather than clustering on
+    # the player's name. The human-readable `profile` above keeps the name for
+    # grounded reports / display.
+    df["embed_text"] = df.apply(_build_embed_text, axis=1)
     df["player_id"] = df.index
     return df
+
+
+def _top_attr_str(row):
+    pool = GK_ONLY_COLS if row["is_GK"] else OUTFIELD_ATTR_COLS
+    attrs = {c: row[c] for c in pool if c in row.index and pd.notna(row[c])}
+    top = sorted(attrs.items(), key=lambda x: -x[1])[:8]
+    return ", ".join(f"{ATTR_READABLE.get(k, k)} {int(v)}" for k, v in top)
 
 
 def _build_profile(row):
@@ -222,14 +245,25 @@ def _build_profile(row):
     val = "not for sale" if row["Not_For_Sale"] else (
         f"EUR{row['Value_EUR']:,.0f}" if pd.notna(row["Value_EUR"]) else "value unknown")
     wage = f"EUR{row['Wage_EUR_pm']:,.0f}/month" if pd.notna(row["Wage_EUR_pm"]) else "wage unknown"
-    pool = GK_ONLY_COLS if row["is_GK"] else OUTFIELD_ATTR_COLS
-    attrs = {c: row[c] for c in pool if c in row.index and pd.notna(row[c])}
-    top = sorted(attrs.items(), key=lambda x: -x[1])[:8]
-    attr_str = ", ".join(f"{ATTR_READABLE.get(k, k)} {int(v)}" for k, v in top)
     return (f"{row['Player_Name']} is a {row['Nationality']} player aged {row['Age']}, "
             f"playing as {pos} for {row['Club_Name']} ({row['League']}). "
             f"Preferred foot: {row['Foot']}. Style: {row['Style']}. "
-            f"Transfer value: {val}. Wage: {wage}. Key attributes: {attr_str}.")
+            f"Transfer value: {val}. Wage: {wage}. Key attributes: {_top_attr_str(row)}.")
+
+
+def _build_embed_text(row):
+    """Profile text for embeddings — play-style only.
+
+    Deliberately excludes name, nationality, age and value so vector similarity
+    (semantic search and player-to-player similarity) captures HOW a player plays
+    (position, foot, style, 1-20 attributes) rather than who they are or where
+    they're from. Identity facts (age, nationality, club) are handled as explicit
+    structured filters, so they only matter when the query asks for them.
+    """
+    pos = row["Position"] if row["Position"] != "Unknown" else "an unknown position"
+    return (f"A player who plays as {pos}. "
+            f"Preferred foot: {row['Foot']}. Style: {row['Style']}. "
+            f"Key attributes: {_top_attr_str(row)}.")
 
 
 # --------------------------------------------------------------------------- #
@@ -296,6 +330,9 @@ POSITION_KEYWORDS = {
     "centre-back": ["D (C)", "D (RC)", "D (LC)", "D (RLC)"],
     "center-back": ["D (C)", "D (RC)", "D (LC)", "D (RLC)"],
     "centre back": ["D (C)", "D (RC)", "D (LC)", "D (RLC)"],
+    "center back": ["D (C)", "D (RC)", "D (LC)", "D (RLC)"],
+    "centre-half": ["D (C)", "D (RC)", "D (LC)", "D (RLC)"],
+    "centre half": ["D (C)", "D (RC)", "D (LC)", "D (RLC)"],
     "central defender": ["D (C)"], "defender": ["D ("], "defence": ["D ("],
     "full-back": ["D (R)", "D (L)", "D (RL)", "WB"], "fullback": ["D (R)", "D (L)", "WB"],
     "right-back": ["D (R)", "D (RC)", "WB (R)"], "left-back": ["D (L)", "D (LC)", "WB (L)"],
@@ -307,6 +344,7 @@ POSITION_KEYWORDS = {
     "winger": ["AM (R)", "AM (L)", "AM (RL)", "M (R)", "M (L)"],
     "wide midfielder": ["M (R)", "M (L)"],
     "right winger": ["AM (R)", "M (R)"], "left winger": ["AM (L)", "M (L)"],
+    "right wing": ["AM (R)", "M (R)"], "left wing": ["AM (L)", "M (L)"],
     "striker": ["ST"], "forward": ["ST", "AM"], "centre-forward": ["ST (C)"],
     "center-forward": ["ST (C)"], "number 9": ["ST (C)"], "no 9": ["ST (C)"],
     "poacher": ["ST (C)"], "target man": ["ST (C)"],
@@ -358,7 +396,7 @@ def _money(num, suffix):
     return num
 
 
-def parse_query(query: str) -> dict:
+def parse_query(query: str, known_clubs=None) -> dict:
     """Parse a natural-language scouting query into a structured constraint dict.
 
     Returns a dict with:
@@ -375,7 +413,7 @@ def parse_query(query: str) -> dict:
     q = " " + query.lower().strip() + " "
     r = {"age": [], "value": {"min": None, "max": None},
          "wage": {"min": None, "max": None},
-         "nationality": [], "league": [], "position": [], "foot": None,
+         "nationality": [], "league": [], "club": [], "position": [], "foot": None,
          "hard_attrs": {}, "soft_attrs": {}, "semantic_query": query,
          "top_k": 10, "top_k_explicit": False, "raw_query": query, "trace": []}
 
@@ -394,12 +432,18 @@ def parse_query(query: str) -> dict:
     age_intervals = []
     # negative lookahead avoids matching money like "under 10M" / "over 5 million"
     _no_money = r"(?![\d]|\s*(?:m\b|k\b|b\b|mil|million|thousand|billion|eur|€|\$|,\d))"
-    for mm in re.finditer(r"(?:under|younger than|below|less than|u-?)\s*(\d{1,2})" + _no_money, q):
+    # blank out attribute thresholds ("passing above 16", "technique > 15") so the
+    # age scanner doesn't read them as ages (e.g. "above 16" -> age > 16).
+    _attr_alt = "|".join(re.escape(k) for k in sorted(_ATTR_KEYWORDS, key=len, reverse=True))
+    _cmp = (r"(?:>=|<=|>|<|=|at least|no less than|minimum|above|over|greater than|more than|"
+            r"at most|no more than|maximum|below|under|less than|exactly|equal to|of|is|are|around)")
+    q_age = re.sub(r"\b(?:" + _attr_alt + r")\b\s*" + _cmp + r"?\s*\d{1,2}", "  ", q)
+    for mm in re.finditer(r"(?:under|younger than|below|less than|u-?)\s*(\d{1,2})" + _no_money, q_age):
         age_intervals.append((None, int(mm.group(1)) - 1))
-    for mm in re.finditer(r"(?:older than|over|above|aged over)\s*(\d{1,2})" + _no_money, q):
+    for mm in re.finditer(r"(?:older than|over|above|aged over)\s*(\d{1,2})" + _no_money, q_age):
         # avoid catching transfer/value 'over' (those are handled with money units)
         age_intervals.append((int(mm.group(1)) + 1, None))
-    for mm in re.finditer(r"\b(?:aged?\s+)?(?:between\s+)?(\d{1,2})\s*(?:and|to|-)\s*(\d{1,2})\b", q):
+    for mm in re.finditer(r"\b(?:aged?\s+)?(?:between\s+)?(\d{1,2})\s*(?:and|to|-)\s*(\d{1,2})\b", q_age):
         a, b = int(mm.group(1)), int(mm.group(2))
         if 14 <= a <= 45 and 14 <= b <= 50 and a < b:
             age_intervals.append((a, b))
@@ -447,8 +491,14 @@ def parse_query(query: str) -> dict:
 
     # --- POSITION (OR across multiple) --------------------------------------
     pos_tokens = []
+    matched_kws = []
     for kw in sorted(POSITION_KEYWORDS, key=len, reverse=True):
         if re.search(r"\b" + re.escape(kw) + r"(?:s|es)?\b", q):
+            # skip a generic keyword already covered by a longer matched phrase
+            # (e.g. "midfielder" inside "central midfielder")
+            if any(kw != m and kw in m for m in matched_kws):
+                continue
+            matched_kws.append(kw)
             pos_tokens.extend(POSITION_KEYWORDS[kw])
     if pos_tokens:
         r["position"] = list(dict.fromkeys(pos_tokens))
@@ -464,6 +514,25 @@ def parse_query(query: str) -> dict:
     if nats:
         r["nationality"] = nats
         trace(f"nationality (OR) = {nats}")
+
+    # --- CLUB / TEAM (OR; accent-insensitive, matched against the dataset) --
+    if known_clubs:
+        qn = _strip_accents(q)
+        hits = []
+        for club in sorted(known_clubs, key=lambda c: len(str(c)), reverse=True):
+            cn = _strip_accents(club)
+            if len(cn) < 4 or cn in ("unknown",):   # skip too-short / placeholder
+                continue
+            if re.search(r"\b" + re.escape(cn) + r"\b", qn):
+                # drop a hit already covered by a longer matched club name
+                if not any(cn != _strip_accents(h) and cn in _strip_accents(h) for h in hits):
+                    hits.append(club)
+        # remove shorter names that are substrings of a longer accepted one
+        hits = [c for c in hits
+                if not any(c != o and _strip_accents(c) in _strip_accents(o) for o in hits)]
+        if hits:
+            r["club"] = hits
+            trace(f"club (OR) = {hits}")
 
     # --- EXPLICIT numeric attribute constraints (HARD, strict) -------------
     for kw in sorted(_ATTR_KEYWORDS, key=len, reverse=True):
@@ -572,6 +641,12 @@ def structured_filter(df, parsed):
         nat_lower = [n.lower() for n in parsed["nationality"]]
         mask &= df["Nationality"].str.lower().isin(nat_lower)
         applied.append(f"Nationality in {parsed['nationality']} (OR)")
+
+    # CLUB — OR (accent-insensitive match against Club_Name)
+    if parsed.get("club"):
+        club_norm = {_strip_accents(c) for c in parsed["club"]}
+        mask &= df["Club_Name"].apply(lambda c: _strip_accents(c) in club_norm)
+        applied.append(f"Club in {parsed['club']} (OR)")
 
     # HARD numeric attributes — strict
     for col, conds in parsed["hard_attrs"].items():
@@ -701,8 +776,15 @@ def search(df, parsed, embeddings=None, embed_query_fn=None, return_df=False):
     filtered, applied, skipped = structured_filter(df, parsed)
 
     sem_scores = None
+    # Only let semantic similarity influence ranking when the query carries
+    # descriptive intent: either it produced soft attribute signals (adjectives
+    # like "creative"/"fast"), or it is pure free text with no structured
+    # constraints at all. A purely structured query (position/age/foot/club/
+    # nationality/explicit numeric attrs) is ranked by its attribute constraints
+    # and attribute-based quality only -- identity facts never become rank points.
+    descriptive = bool(parsed.get("soft_attrs")) or not has_constraints(parsed)
     use_semantic = (embeddings is not None and embed_query_fn is not None
-                    and parsed.get("semantic_query"))
+                    and parsed.get("semantic_query") and descriptive)
     if use_semantic and len(filtered) > 0:
         try:
             qvec = embed_query_fn(parsed["semantic_query"]).reshape(1, -1)
@@ -727,6 +809,91 @@ def search(df, parsed, embeddings=None, embed_query_fn=None, return_df=False):
     if return_df:
         result["df"] = ranked
     return result
+
+
+# --------------------------------------------------------------------------- #
+# 7. Direct player lookup ("Tell me about Lionel Messi")
+# --------------------------------------------------------------------------- #
+
+# Words that signal a *scouting search* rather than a name lookup; if the query
+# contains constraints we never treat it as a name lookup.
+def has_constraints(parsed) -> bool:
+    """True if the parsed query carries any scouting constraint (vs. a bare name)."""
+    return bool(parsed.get("position") or parsed.get("nationality")
+                or parsed.get("club") or parsed.get("hard_attrs")
+                or parsed.get("soft_attrs") or parsed.get("age")
+                or parsed.get("foot")
+                or parsed["value"]["min"] is not None or parsed["value"]["max"] is not None
+                or parsed["wage"]["min"] is not None or parsed["wage"]["max"] is not None)
+
+
+def find_players_by_name(df, query: str, limit: int = 5):
+    """Return dataframe rows whose Player_Name matches the query (accent-insensitive).
+
+    Exact normalised matches win; otherwise every query token must appear as a
+    whole token in the player's name. Results are sorted best (highest Overall)
+    first. Returns an empty frame when nothing matches.
+    """
+    qn = re.sub(r"[^a-z0-9 ]", " ", _strip_accents(query)).strip()
+    qn = re.sub(r"\s+", " ", qn)
+    if len(qn) < 3:
+        return df.iloc[0:0]
+    norm = df["Player_Name"].fillna("").apply(_strip_accents)
+    norm = norm.apply(lambda n: re.sub(r"[^a-z0-9 ]", " ", n))
+
+    exact = df[norm.str.strip() == qn]
+    if len(exact):
+        return exact.sort_values("Overall", ascending=False).head(limit)
+
+    toks = [t for t in qn.split() if len(t) >= 3]
+    if not toks:
+        return df.iloc[0:0]
+    mask = norm.apply(lambda n: all(t in n.split() for t in toks))
+    hits = df[mask]
+    return hits.sort_values("Overall", ascending=False).head(limit)
+
+
+def players_to_records(ranked):
+    """Public wrapper around the internal record serialiser."""
+    return _players_to_records(ranked)
+
+
+def find_similar_players(df, ref_df, embeddings=None, top_k=5):
+    """Return players most similar to a reference player.
+
+    Similarity uses the cached sentence embeddings when available (cosine over
+    the unit-norm profile vectors), otherwise a cosine over the raw 1-20
+    attribute vector. Candidates are restricted to the same broad type
+    (goalkeeper vs outfielder) as the reference. The reference itself is
+    excluded. `match_score` carries the similarity (0-1).
+    """
+    if ref_df is None or len(ref_df) == 0:
+        return df.iloc[0:0]
+    ref_label = ref_df.index[0]
+    ref_is_gk = bool(df.loc[ref_label, "is_GK"])
+
+    # candidate pool: same broad role, drop the reference
+    pool = df[(df["is_GK"] == ref_is_gk) & (df.index != ref_label)]
+    if len(pool) == 0:
+        return df.iloc[0:0]
+
+    ref_pos = df.index.get_loc(ref_label)
+    pool_pos = np.array([df.index.get_loc(i) for i in pool.index])
+
+    if embeddings is not None and len(embeddings) == len(df):
+        vecs = np.asarray(embeddings, dtype="float32")  # already unit-norm
+        sims = vecs[pool_pos] @ vecs[ref_pos]
+    else:
+        cols = [c for c in (OUTFIELD_ATTR_COLS + GK_ONLY_COLS) if c in df.columns]
+        M = df[cols].fillna(0).to_numpy(dtype=float)
+        M = M / (np.linalg.norm(M, axis=1, keepdims=True) + 1e-9)
+        sims = M[pool_pos] @ M[ref_pos]
+
+    order = np.argsort(-sims)[:top_k]
+    res = pool.iloc[order].copy()
+    res["match_score"] = np.clip(sims[order], 0.0, 1.0).round(3)
+    res["_quality"] = res["Overall"].fillna(0).to_numpy()
+    return res
 
 
 _DISPLAY_COLS = ["Player_Name", "Age", "Nationality", "Position", "Club_Name",

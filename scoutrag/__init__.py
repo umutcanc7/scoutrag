@@ -17,6 +17,10 @@ from .core import (
     structured_filter,
     rank_players,
     search,
+    find_players_by_name,
+    find_similar_players,
+    players_to_records,
+    has_constraints,
     NO_MATCH_MESSAGE,
 )
 
@@ -31,5 +35,9 @@ __all__ = [
     "structured_filter",
     "rank_players",
     "search",
+    "find_players_by_name",
+    "find_similar_players",
+    "players_to_records",
+    "has_constraints",
     "NO_MATCH_MESSAGE",
 ]

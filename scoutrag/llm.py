@@ -45,7 +45,8 @@ _REWRITE_SYSTEM = (
     "3. Preserve ALL precise numeric constraints exactly as given\n"
     "   (e.g. 'passing between 10 and 17', 'older than 30', 'under 21').\n"
     "4. Preserve OR conditions ('Turkish or Brazilian', 'under 20 or over 35').\n"
-    "5. Preserve budget/value, wage, nationality, foot, and any 'top N'.\n"
+    "5. Preserve budget/value, wage, nationality, foot, club/team name, and any 'top N'.\n"
+    "   Keep club names exactly (e.g. 'for Beşiktaş', 'at Real Madrid').\n"
     "6. Output ONLY the rewritten line. No explanation, no quotes.\n\n"
     "EXAMPLES:\n"
     "In: clinical poacher, cheap, teenager\n"
@@ -103,6 +104,117 @@ def rewrite_query(query: str, model: str = DEFAULT_MODEL) -> tuple[str, bool]:
     out = re.sub(r"^(?:out|output|rewritten)\s*:\s*", "", out, flags=re.IGNORECASE)
     out = out.strip().strip('"\'')
     return (out, True) if out else (query, False)
+
+
+# --------------------------------------------------------------------------- #
+# Intent routing  (info / similar / search)
+# --------------------------------------------------------------------------- #
+
+_ROUTER_SYSTEM = (
+    "You are the router for a football scouting assistant over a Football Manager 2024 "
+    "dataset. Classify the user's request into exactly ONE intent and extract fields. "
+    "Respond with ONLY a JSON object on a single line, no prose, no code fences.\n\n"
+    "INTENTS:\n"
+    "- \"info\": the user wants information about ONE specific named player. Examples: "
+    "\"Who is Phil Foden\", \"Victor Osimhen\", \"tell me about Mbappe\". Put the player's "
+    "name in \"player\".\n"
+    "- \"similar\": the user wants players SIMILAR to one reference player. Examples: "
+    "\"5 players like Mbappe\", \"similar style to Modric\", \"players comparable to Rodri\". "
+    "Put the reference name in \"player\" and any requested count in \"top_k\".\n"
+    "- \"search\": any other scouting query with constraints (position, attributes, club, "
+    "nationality, age, budget, foot). Put a CLEAN structured search line in \"query\".\n\n"
+    "RULES FOR THE \"query\" FIELD (search intent only):\n"
+    "1. Keep position words; turn club/team into 'plays for <Club>' and keep the club name "
+    "exactly (accents included).\n"
+    "2. Turn descriptive adjectives into attribute constraints on a 1-20 scale "
+    "(14 good, 15-16 very good, 17+ elite): clinical->finishing >= 15; visionary->vision >= 15; "
+    "strong->strength >= 14; fast->pace >= 14; commanding keeper->command of area >= 15; "
+    "shot-stopper->reflexes >= 15.\n"
+    "3. Preserve all precise numeric constraints, OR conditions, nationality, foot, "
+    "budget/wage, and any 'top N'.\n\n"
+    "OUTPUT JSON: {\"intent\":\"info|similar|search\",\"player\":\"<name or empty>\","
+    "\"query\":\"<structured search or empty>\",\"top_k\":<int, 0 if none>}\n\n"
+    "EXAMPLES:\n"
+    "In: Who is Phil Foden\nOut: {\"intent\":\"info\",\"player\":\"Phil Foden\",\"query\":\"\",\"top_k\":0}\n"
+    "In: Victor Osimhen\nOut: {\"intent\":\"info\",\"player\":\"Victor Osimhen\",\"query\":\"\",\"top_k\":0}\n"
+    "In: give me 5 players with a similar play style to Kylian Mbappe\n"
+    "Out: {\"intent\":\"similar\",\"player\":\"Kylian Mbappe\",\"query\":\"\",\"top_k\":5}\n"
+    "In: Who plays left wing for Milan\n"
+    "Out: {\"intent\":\"search\",\"player\":\"\",\"query\":\"left winger, plays for Milan\",\"top_k\":0}\n"
+    "In: clinical strong strikers under 21\n"
+    "Out: {\"intent\":\"search\",\"player\":\"\",\"query\":\"striker, finishing >= 15, strength >= 14, under 21\",\"top_k\":0}\n"
+)
+
+_INFO_PREFIX = re.compile(
+    r"^\s*(?:who(?:'s| is| are)?|what(?:'s| is)?|tell me about|info(?:rmation)? (?:on|about)|"
+    r"profile of|stats? (?:for|of|on)|about|show me)\s+", re.IGNORECASE)
+_SIMILAR_CUE = re.compile(
+    r"\b(?:similar(?:\s+(?:to|style|player|players))?|like|plays? like|comparable(?:\s+to)?|"
+    r"same (?:style|profile|attributes?))\b", re.IGNORECASE)
+
+
+def _heuristic_route(query: str) -> dict:
+    """Rule-based fallback router used when Ollama is unavailable."""
+    q = query.strip()
+    out = {"intent": "search", "player": "", "query": q, "top_k": 0, "used_llm": False}
+
+    m_top = re.search(r"\b(?:top|best|first)\s+(\d{1,3})\b", q, re.I) or \
+            re.search(r"\b(\d{1,3})\s+players?\b", q, re.I)
+    if m_top:
+        out["top_k"] = int(m_top.group(1))
+
+    if _SIMILAR_CUE.search(q):
+        # reference name = text after the last similarity cue word
+        ref = _SIMILAR_CUE.split(q)[-1]
+        ref = re.sub(r"^\s*(?:to|as|of)\s+", "", ref).strip(" ,.?!")
+        out["intent"] = "similar"
+        out["player"] = ref
+        return out
+
+    mp = _INFO_PREFIX.match(q)
+    if mp:
+        name = q[mp.end():].strip(" ,.?!")
+        # only treat as info if what's left looks like a name (<=4 words, letters)
+        if name and len(name.split()) <= 4 and re.search(r"[A-Za-zÀ-ÿ]", name):
+            out["intent"] = "info"
+            out["player"] = name
+            return out
+    return out
+
+
+def route_query(query: str, model: str = DEFAULT_MODEL) -> dict:
+    """Classify a query into info / similar / search and extract fields.
+
+    Returns {"intent", "player", "query", "top_k", "used_llm"}. Uses the local
+    LLM when available; otherwise falls back to rule-based routing.
+    """
+    if not ollama_available(model):
+        return _heuristic_route(query)
+    raw = _ollama_chat(_ROUTER_SYSTEM, f"In: {query}\nOut:", model=model,
+                       temperature=0.0, max_tokens=200)
+    if not raw:
+        return _heuristic_route(query)
+    m = re.search(r"\{.*\}", raw, re.S)
+    if not m:
+        return _heuristic_route(query)
+    try:
+        obj = json.loads(m.group(0))
+    except Exception:
+        return _heuristic_route(query)
+    intent = str(obj.get("intent", "search")).lower().strip()
+    if intent not in ("info", "similar", "search"):
+        intent = "search"
+    try:
+        top_k = int(obj.get("top_k", 0) or 0)
+    except Exception:
+        top_k = 0
+    return {
+        "intent": intent,
+        "player": str(obj.get("player", "") or "").strip(),
+        "query": str(obj.get("query", "") or "").strip() or query,
+        "top_k": top_k,
+        "used_llm": True,
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -197,6 +309,51 @@ def _template_report(query, players) -> str:
     lines.append("")
     lines.append("Note: attributes are Football Manager 2024 game data, not real scouting data.")
     return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------- #
+# Single-player info ("Tell me about <player>")
+# --------------------------------------------------------------------------- #
+
+_INFO_SYSTEM = (
+    "You are a football scout. You receive ONE player's record (JSON) from a Football "
+    "Manager 2024 dataset (synthetic game data, not real scouting data). Write a short, "
+    "factual profile (2-4 sentences): who they are (club, position, age, nationality), and "
+    "their standout attributes by the highest numbers in the record. Only use names and "
+    "numbers present in the JSON; never invent anything. Plain text, no bullet points."
+)
+
+
+def generate_player_info(player: dict, model: str = DEFAULT_MODEL) -> str:
+    """Return a brief grounded profile of a single player record."""
+    if not player:
+        return ""
+    if ollama_available(model):
+        ctx = json.dumps(player, ensure_ascii=False)
+        out = _ollama_chat(_INFO_SYSTEM, f"Player (JSON):\n{ctx}",
+                           model=model, max_tokens=220, temperature=0.3)
+        if out:
+            return out.strip()
+    return _template_info(player)
+
+
+def _template_info(p: dict) -> str:
+    age = f", aged {p['Age']}" if p.get("Age") is not None else ""
+    nat = p.get("Nationality") or "unknown nationality"
+    pos = p.get("Position") or "an unknown position"
+    club = p.get("Club_Name") or "an unknown club"
+    league = f" ({p['League']})" if p.get("League") else ""
+    foot = f" {p['Foot']}-footed." if p.get("Foot") and p["Foot"] != "Unknown" else ""
+    val = (f" Transfer value about EUR{p['Value_EUR']:,.0f}." if p.get("Value_EUR") else "")
+    # standout attributes = highest numeric ATTR_READABLE values present
+    attrs = [(ATTR_READABLE[k], p[k]) for k in ATTR_READABLE
+             if isinstance(p.get(k), (int, float)) and p.get(k) is not None]
+    attrs.sort(key=lambda x: -x[1])
+    top = ", ".join(f"{name} {int(v)}" for name, v in attrs[:6])
+    strengths = f" Standout attributes: {top}." if top else ""
+    return (f"{p.get('Player_Name','This player')} is a {nat} {pos}{age} at "
+            f"{club}{league}.{foot}{val}{strengths} "
+            f"These are Football Manager 2024 game values, not real-world scouting data.")
 
 
 # --------------------------------------------------------------------------- #

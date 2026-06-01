@@ -93,7 +93,11 @@
     background:linear-gradient(180deg,var(--panel),#0e1c17);border:1px solid var(--line);
     border-radius:13px;padding:13px 15px;position:relative;overflow:hidden;transition:.15s;
   }
-  .card:hover{border-color:var(--green-dim)}
+  .card{cursor:pointer}
+  .card:hover{border-color:var(--green);transform:translateY(-2px);box-shadow:0 6px 20px rgba(0,0,0,.3)}
+  .card:focus-visible{outline:2px solid var(--green);outline-offset:2px}
+  .cardhint{padding-left:26px;margin-top:9px;font-size:10.5px;color:var(--faint);opacity:0;transition:.15s}
+  .card:hover .cardhint{opacity:1}
   .rank{position:absolute;top:0;left:0;width:30px;height:30px;background:var(--green-dim);
     color:#aef0d4;font-weight:700;font-size:12px;display:grid;place-items:center;border-bottom-right-radius:10px}
   .card-top{display:flex;align-items:baseline;gap:10px;padding-left:26px;flex-wrap:wrap}
@@ -140,6 +144,26 @@
   .switch input:checked+.slider{background:var(--green-dim)}
   .switch input:checked+.slider:before{transform:translateX(18px);background:var(--green)}
   .close{float:right;cursor:pointer;color:var(--muted);font-size:20px;line-height:1}
+  /* player detail modal */
+  .pmodal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;z-index:30;
+    align-items:flex-start;justify-content:center;backdrop-filter:blur(3px)}
+  .pmodal.open{display:flex}
+  .pm-panel{background:linear-gradient(180deg,var(--panel),#0c1813);border:1px solid var(--line);
+    border-radius:16px;margin-top:60px;width:min(560px,94vw);max-height:84vh;overflow-y:auto;
+    padding:22px 24px;box-shadow:var(--shadow);position:relative}
+  .pm-top{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;padding-right:24px}
+  .pm-name{font-size:21px;font-weight:750;letter-spacing:-.2px}
+  .pm-sub{color:var(--muted);font-size:13px;margin-top:4px}
+  .pm-info{margin:14px 0 4px;font-size:13px;color:var(--muted);
+    background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 13px}
+  .pm-info b{color:var(--txt)}
+  .pm-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px 18px;margin:14px 0}
+  .apill{display:flex;align-items:center;gap:9px;font-size:12.5px}
+  .apill .aname{width:108px;color:var(--muted);text-transform:capitalize;flex:none}
+  .apill .abar{flex:1;height:6px;background:#0a1813;border-radius:99px;overflow:hidden;border:1px solid #142a21}
+  .apill .abar span{display:block;height:100%;border-radius:99px}
+  .apill .aval{width:22px;text-align:right;font-weight:700}
+  .pm-note{font-size:11px;color:var(--faint);margin-top:6px;border-top:1px solid var(--line);padding-top:10px}
   .typing{display:flex;gap:5px;padding:4px 0}
   .typing span{width:7px;height:7px;background:var(--green);border-radius:50%;animation:bob 1.2s infinite}
   .typing span:nth-child(2){animation-delay:.2s}.typing span:nth-child(3){animation-delay:.4s}
@@ -203,15 +227,38 @@
   </div>
 </div>
 
+<div class="pmodal" id="pmodal" onclick="if(event.target.id==='pmodal')closePlayer()">
+  <div class="pm-panel">
+    <span class="close" onclick="closePlayer()">✕</span>
+    <div id="pmBody"></div>
+  </div>
+</div>
+
 <script>
 const EXAMPLES = [
   ["Left-footed centre-back, <b>passing &gt; 15</b>, under 23, valued under €10M"],
   ["<b>Turkish or Brazilian</b> winger under 21"],
-  ["Players whose <b>passing is between 10 and 17</b>, under 20 or over 35"],
+  ["Left-back who plays for <b>Beşiktaş</b>"],
   ["Top 5 <b>clinical</b>, <b>strong</b> and <b>fast</b> strikers"],
   ["<b>Commanding</b> goalkeeper with great <b>reflexes</b>"],
-  ["<b>Visionary</b> German playmaker, wage under €200k"],
+  ["Tell me about <b>Lionel Messi</b>"],
 ];
+
+// FM24 attribute abbreviation -> readable name (mirrors scoutrag/core.py)
+const ATTR = {
+  Acc:"acceleration",Agi:"agility",Bal:"balance",Bra:"bravery",Cmp:"composure",
+  Cnt:"concentration",Cor:"corners",Cro:"crossing",Dec:"decisions",Det:"determination",
+  Dri:"dribbling",Fin:"finishing",Fir:"first touch",Fla:"flair",Fre:"free kicks",
+  Hea:"heading",Jum:"jumping",Ldr:"leadership",Lon:"long shots",Mar:"marking",
+  Nat:"natural fitness",OtB:"off the ball",Pac:"pace",Pas:"passing",Pen:"penalties",
+  Pos:"positioning",Sta:"stamina",Str:"strength",Tck:"tackling",Tea:"teamwork",
+  Tec:"technique",Vis:"vision",Wor:"work rate",Agg:"aggression",Ant:"anticipation",
+  Aer:"aerial reach","1v1":"one-on-ones",Com:"communication",Cmd:"command of area",
+  Ecc:"eccentricity",Han:"handling",Kic:"kicking","L Th":"long throws",
+  Pun:"punching",Ref:"reflexes",TRO:"rushing out",Thr:"throwing",
+};
+const GK_COLS = ["Aer","Cmd","Com","Ecc","Han","Kic","1v1","Pun","Ref","TRO","Thr"];
+const _pcStore = {}; let _pcN = 0;  // per-card record store for the detail modal
 const cfg = {
   backend: localStorage.getItem('sr_backend') || 'http://localhost:8000',
   topk: +(localStorage.getItem('sr_topk')||10),
@@ -283,7 +330,9 @@ function playerCard(p,i){
   if(p.Foot && p.Foot!=='Unknown') bits.push(p.Foot+'-footed');
   const money=fmtMoney(p.Value_EUR);
   if(money) bits.push(money);
-  return `<div class="card">
+  const uid='pc'+(++_pcN); _pcStore[uid]=p;
+  return `<div class="card" role="button" tabindex="0" onclick="openPlayer('${uid}')"
+        onkeydown="if(event.key==='Enter')openPlayer('${uid}')">
     <div class="rank">${i+1}</div>
     <div class="card-top"><span class="pname">${esc(p.Player_Name)}</span>
       <span class="ppos">${esc(p.Position)}</span></div>
@@ -291,8 +340,51 @@ function playerCard(p,i){
     <div class="scorebar"><span class="label">match score</span>
       <div class="track"><div class="fill" style="width:${pct}%"></div></div>
       <span class="score">${pct}%</span></div>
+    <div class="cardhint">click for full profile →</div>
   </div>`;
 }
+
+// attribute colour by 1-20 value
+function attrColor(v){
+  if(v>=16) return 'var(--green)';
+  if(v>=13) return '#9bf0cd';
+  if(v>=10) return 'var(--muted)';
+  return 'var(--faint)';
+}
+function openPlayer(uid){
+  const p=_pcStore[uid]; if(!p) return;
+  const isGK = String(p.Position||'').includes('GK');
+  // attributes present in the record, position-appropriate, sorted high->low
+  const rows=[];
+  for(const k in ATTR){
+    if(GK_COLS.includes(k) && !isGK) continue;
+    const v=p[k];
+    if(typeof v==='number') rows.push([ATTR[k],v]);
+  }
+  rows.sort((a,b)=>b[1]-a[1]);
+  const pills=rows.map(([n,v])=>`<div class="apill">
+      <span class="aname">${esc(n)}</span>
+      <span class="abar"><span style="width:${v/20*100}%;background:${attrColor(v)}"></span></span>
+      <span class="aval" style="color:${attrColor(v)}">${v}</span></div>`).join('');
+  const info=[];
+  if(p.Age!=null) info.push(`Age <b>${p.Age}</b>`);
+  if(p.Foot&&p.Foot!=='Unknown') info.push(`<b>${esc(p.Foot)}</b> foot`);
+  if(p.Overall!=null) info.push(`Overall <b>${(+p.Overall).toFixed(1)}</b>`);
+  const money=fmtMoney(p.Value_EUR); if(money) info.push(`Value <b>${money}</b>`);
+  const wage=fmtMoney(p.Wage_EUR_pm); if(wage) info.push(`Wage <b>${wage}</b>/m`);
+  $('#pmBody').innerHTML=`
+    <div class="pm-top">
+      <div>
+        <div class="pm-name">${esc(p.Player_Name)}</div>
+        <div class="pm-sub">${esc(p.Nationality)} · ${esc(p.Position)} · ${esc(p.Club_Name||'—')}${p.League?' ('+esc(p.League)+')':''}</div>
+      </div>
+    </div>
+    <div class="pm-info">${info.join(' &nbsp;·&nbsp; ')}</div>
+    <div class="pm-grid">${pills}</div>
+    <div class="pm-note">Football Manager 2024 game values (1–20 scale), not real-world scouting data.</div>`;
+  $('#pmodal').classList.add('open');
+}
+function closePlayer(){ $('#pmodal').classList.remove('open'); }
 
 async function ask(){
   const q=$('#q').value.trim(); if(!q) return;
@@ -314,6 +406,16 @@ async function ask(){
 
     if(d.message){
       html+=`<div class="nomatch">⚠ ${esc(d.message)}</div>`;
+    }else if(d.mode==='info'){
+      html+=`<div style="font-size:13px;color:var(--muted);margin-bottom:4px">
+        Player profile${d.players.length>1?'s ('+d.players.length+' name matches)':''}:</div>`;
+      if(d.summary) html+=`<div class="summary">${esc(d.summary)}</div>`;
+      html+=`<div class="grid">${d.players.map(playerCard).join('')}</div>`;
+    }else if(d.mode==='similar'){
+      html+=`<div style="font-size:13px;color:var(--muted);margin-bottom:4px">
+        ${d.players.length} most similar player${d.players.length>1?'s':''} (by attribute profile):</div>`;
+      if(d.summary) html+=`<div class="summary">${esc(d.summary)}</div>`;
+      html+=`<div class="grid">${d.players.map(playerCard).join('')}</div>`;
     }else{
       html+=`<div style="font-size:13px;color:var(--muted);margin-bottom:4px">
         ${d.players.length} match${d.players.length>1?'es':''} (from ${d.n_filtered.toLocaleString()} that passed filters), ranked best→worst:</div>`;
@@ -337,6 +439,7 @@ async function ask(){
 
 $('#q').addEventListener('input',e=>{e.target.style.height='auto';e.target.style.height=e.target.scrollHeight+'px';});
 $('#q').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();ask();}});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closePlayer();});
 
 initSettings(); renderChips(); checkHealth();
 </script>
