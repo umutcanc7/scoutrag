@@ -858,7 +858,7 @@ def players_to_records(ranked):
     return _players_to_records(ranked)
 
 
-def find_similar_players(df, ref_df, embeddings=None, top_k=5):
+def find_similar_players(df, ref_df, embeddings=None, top_k=5, allowed_index=None):
     """Return players most similar to a reference player.
 
     Similarity uses the cached sentence embeddings when available (cosine over
@@ -866,6 +866,11 @@ def find_similar_players(df, ref_df, embeddings=None, top_k=5):
     attribute vector. Candidates are restricted to the same broad type
     (goalkeeper vs outfielder) as the reference. The reference itself is
     excluded. `match_score` carries the similarity (0-1).
+
+    If `allowed_index` is given (e.g. the result of structured_filter for extra
+    constraints like nationality / age / club in the query), candidates are
+    further restricted to that set -- so "Turkish players like Haaland" returns
+    Haaland-style players who are also Turkish.
     """
     if ref_df is None or len(ref_df) == 0:
         return df.iloc[0:0]
@@ -874,6 +879,8 @@ def find_similar_players(df, ref_df, embeddings=None, top_k=5):
 
     # candidate pool: same broad role, drop the reference
     pool = df[(df["is_GK"] == ref_is_gk) & (df.index != ref_label)]
+    if allowed_index is not None:
+        pool = pool[pool.index.isin(allowed_index)]
     if len(pool) == 0:
         return df.iloc[0:0]
 

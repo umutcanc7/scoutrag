@@ -28,7 +28,7 @@ from pydantic import BaseModel
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from scoutrag import (load_and_clean, build_profiles, align_embeddings,
-                      parse_query, search, find_players_by_name,
+                      parse_query, search, structured_filter, find_players_by_name,
                       find_similar_players, players_to_records,
                       has_constraints, ATTR_READABLE, NO_MATCH_MESSAGE)
 from scoutrag import llm as scout_llm
@@ -63,12 +63,46 @@ def _build_embed_fn():
         return None
 
 
+def _load_or_build_embeddings(df):
+    """Load the cached play-style embeddings; if the cache is missing, build it
+    once (and save it for next time) so semantic search works after the cache is
+    deleted/changed -- no separate build_embeddings.py run needed."""
+    emb = align_embeddings(df, PKL_PATH)
+    if emb is not None:
+        return emb
+    try:
+        import numpy as np
+        import pickle
+        from sentence_transformers import SentenceTransformer
+    except Exception as e:  # sentence-transformers not installed -> stay off
+        print(f"[backend] no embeddings cache and cannot build it: {e}")
+        return None
+    print("[backend] no embeddings cache found -- building once (this takes a "
+          "couple of minutes, downloads MiniLM the first time) ...")
+    model = SentenceTransformer(EMBED_MODEL_NAME)
+    vecs = model.encode(df["embed_text"].tolist(), batch_size=64,
+                        normalize_embeddings=True, show_progress_bar=True,
+                        convert_to_numpy=True).astype("float32")
+    # Save a raw-CSV-indexed cache (what align_embeddings expects next startup).
+    try:
+        dim = vecs.shape[1]
+        n_raw = int(df["raw_idx"].max()) + 1
+        full = np.zeros((n_raw, dim), dtype="float32")
+        full[df["raw_idx"].to_numpy()] = vecs
+        with open(PKL_PATH, "wb") as f:
+            pickle.dump({"embeddings": full, "model": EMBED_MODEL_NAME, "dim": dim}, f)
+        print(f"[backend] saved embeddings cache -> {PKL_PATH}")
+    except Exception as e:
+        print(f"[backend] built embeddings but could not save cache: {e}")
+    return vecs  # already in cleaned-df order, ready to use
+
+
 @app.on_event("startup")
 def _startup():
     print("[backend] loading dataset ...")
     df = build_profiles(load_and_clean(CSV_PATH, verbose=True))
     STATE["df"] = df
-    STATE["emb"] = align_embeddings(df, PKL_PATH)
+    STATE["emb"] = _load_or_build_embeddings(df)
     STATE["embed_fn"] = _build_embed_fn() if STATE["emb"] is not None else None
     # distinct, real club names (drop the '-' placeholder) for club-name matching
     STATE["clubs"] = sorted({c for c in df["Club_Name"].dropna().unique()
@@ -130,18 +164,33 @@ def do_search(req: SearchRequest):
         ref = find_players_by_name(df, route["player"] or query, limit=1)
         if len(ref):
             k = route["top_k"] or req.top_k or 5
-            sims = find_similar_players(df, ref, embeddings=STATE["emb"], top_k=k)
-            records = players_to_records(sims)
             ref_name = str(ref.iloc[0]["Player_Name"])
+
+            # Honour any EXTRA constraints in the query (nationality, age, club,
+            # foot, value...) so "Turkish players like Haaland" stays Turkish.
+            # Parse the query with the reference name stripped so the player's
+            # own name can't be read as a constraint.
+            residual = query.lower().replace(ref_name.lower(), " ")
+            extra = parse_query(residual, known_clubs=clubs)
+            allowed_index, extra_trace = None, []
+            if has_constraints(extra):
+                filtered, applied, _ = structured_filter(df, extra)
+                allowed_index = filtered.index
+                extra_trace = applied
+
+            sims = find_similar_players(df, ref, embeddings=STATE["emb"],
+                                        top_k=k, allowed_index=allowed_index)
+            records = players_to_records(sims)
+            constraints = [f"similar to: {ref_name}",
+                           "by embedding" if STATE["emb"] is not None else "by attributes"]
+            constraints += extra_trace
             return {
                 "query": query, "mode": "similar",
                 "rewritten_query": None, "used_llm": route["used_llm"],
                 "message": None if records else NO_MATCH_MESSAGE,
                 "players": records, "n_filtered": len(records),
-                "constraints": [f"similar to: {ref_name}",
-                                "by embedding" if STATE["emb"] is not None else "by attributes"],
-                "summary": scout_llm.generate_summary(f"players similar to {ref_name}", records)
-                           if records else None,
+                "constraints": constraints,
+                "summary": scout_llm.generate_summary(query, records) if records else None,
             }
         # fall through to search if the reference name wasn't found
 
