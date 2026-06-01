@@ -1,0 +1,13 @@
+# Cached embeddings — rebuilt automatically on first run
+player_embeddings.pkl
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# OS / editor
+.DS_Store
+.idea/

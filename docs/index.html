@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ScoutRAG · Football Scouting Assistant</title>
+<style>
+  :root{
+    --bg:#0c1311; --bg2:#0f1a16; --panel:#10201a; --panel2:#14271f;
+    --line:#1f3b2f; --txt:#e8f3ee; --muted:#8fae9f; --faint:#5d7a6c;
+    --green:#27c08a; --green2:#1fae7a; --green-dim:#163e30; --glow:rgba(39,192,138,.35);
+    --user:#173a2c; --warn:#e0a64b; --danger:#e06a5a;
+    --radius:16px; --shadow:0 8px 30px rgba(0,0,0,.35);
+    font-synthesis:none;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0; background:
+      radial-gradient(1200px 600px at 80% -10%, #123a2c33, transparent 60%),
+      radial-gradient(900px 500px at -10% 110%, #0f5c3f22, transparent 55%),
+      var(--bg);
+    color:var(--txt);
+    font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+    display:flex; flex-direction:column; min-height:100vh;
+  }
+  a{color:var(--green)}
+  /* header */
+  header{
+    display:flex; align-items:center; gap:14px;
+    padding:14px 22px; border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg,#10201a,#0d1814); position:sticky; top:0; z-index:5;
+    backdrop-filter:blur(8px);
+  }
+  .logo{display:flex;align-items:center;gap:11px}
+  .mark{
+    width:34px;height:34px;border-radius:10px;display:grid;place-items:center;
+    background:linear-gradient(135deg,var(--green),#0e7a55);
+    box-shadow:0 0 18px var(--glow); color:#04140d;font-weight:800;
+  }
+  .brand{font-weight:700;font-size:18px;letter-spacing:.2px}
+  .brand small{display:block;font-weight:500;color:var(--muted);font-size:11px;letter-spacing:.4px}
+  .spacer{flex:1}
+  .status{
+    display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted);
+    background:var(--panel);border:1px solid var(--line);padding:6px 12px;border-radius:999px;cursor:pointer;
+  }
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--faint);box-shadow:0 0 0 0 var(--glow)}
+  .dot.on{background:var(--green);animation:pulse 2s infinite}
+  .dot.off{background:var(--danger)}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 var(--glow)}70%{box-shadow:0 0 0 6px transparent}100%{box-shadow:0 0 0 0 transparent}}
+  .icon-btn{background:var(--panel);border:1px solid var(--line);color:var(--muted);
+    width:36px;height:36px;border-radius:10px;cursor:pointer;font-size:16px}
+  .icon-btn:hover{color:var(--txt);border-color:var(--green-dim)}
+
+  /* chat */
+  main{flex:1;display:flex;flex-direction:column;max-width:1120px;width:100%;margin:0 auto;padding:0 20px}
+  #chat{flex:1;overflow-y:auto;padding:26px 4px 12px;display:flex;flex-direction:column;gap:20px}
+  .hero{margin:auto;text-align:center;padding:40px 10px;max-width:640px}
+  .hero h1{font-size:30px;margin:0 0 10px;font-weight:750;letter-spacing:-.4px}
+  .hero h1 span{background:linear-gradient(90deg,var(--green),#7fe9c0);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .hero p{color:var(--muted);font-size:15px;line-height:1.6;margin:0 0 24px}
+  .chips{display:flex;flex-wrap:wrap;gap:10px;justify-content:center}
+  .chip{
+    background:var(--panel);border:1px solid var(--line);color:var(--txt);
+    padding:9px 14px;border-radius:11px;font-size:13px;cursor:pointer;text-align:left;transition:.15s;
+  }
+  .chip:hover{border-color:var(--green);background:var(--panel2);transform:translateY(-1px)}
+  .chip b{color:var(--green);font-weight:600}
+
+  .msg{display:flex;gap:12px;animation:rise .35s ease}
+  @keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  .msg .av{width:32px;height:32px;border-radius:9px;flex:none;display:grid;place-items:center;font-size:14px;font-weight:700}
+  .msg.user{flex-direction:row-reverse}
+  .msg.user .bubble{background:var(--user);border-color:#205d44}
+  .msg.user .av{background:#205d44;color:#cfeede}
+  .bot .av{background:linear-gradient(135deg,var(--green),#0e7a55);color:#04140d}
+  .bubble{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:13px 15px;max-width:100%;font-size:14px;line-height:1.55}
+  .msg.bot .bubble{flex:1;min-width:0}
+  .msg.user .bubble{max-width:75%}
+
+  .meta{display:flex;flex-wrap:wrap;gap:7px;margin:2px 0 12px}
+  .tag{font-size:11px;color:var(--muted);background:var(--panel2);border:1px solid var(--line);padding:3px 9px;border-radius:7px}
+  .tag.k{color:#9bf0cd;border-color:var(--green-dim)}
+  .nomatch{color:var(--warn);font-weight:600;font-size:15px;display:flex;align-items:center;gap:9px}
+
+  /* result cards */
+  .summary{margin:2px 0 12px;background:var(--panel2);border:1px solid var(--line);
+    border-left:3px solid var(--green);border-radius:10px;padding:12px 14px;font-size:13.5px;
+    line-height:1.6;color:#dcefe6}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:12px;margin-top:4px}
+  .card{
+    background:linear-gradient(180deg,var(--panel),#0e1c17);border:1px solid var(--line);
+    border-radius:13px;padding:13px 15px;position:relative;overflow:hidden;transition:.15s;
+  }
+  .card:hover{border-color:var(--green-dim)}
+  .rank{position:absolute;top:0;left:0;width:30px;height:30px;background:var(--green-dim);
+    color:#aef0d4;font-weight:700;font-size:12px;display:grid;place-items:center;border-bottom-right-radius:10px}
+  .card-top{display:flex;align-items:baseline;gap:10px;padding-left:26px;flex-wrap:wrap}
+  .pname{font-weight:700;font-size:15px}
+  .ppos{font-size:12px;color:#9bf0cd;background:var(--green-dim);padding:2px 8px;border-radius:6px}
+  .pinfo{color:var(--muted);font-size:12.5px;margin:7px 0 9px;padding-left:26px}
+  .pinfo b{color:var(--txt);font-weight:600}
+  .scorebar{display:flex;align-items:center;gap:10px;padding-left:26px}
+  .scorebar .label{font-size:11px;color:var(--faint);width:78px}
+  .track{flex:1;height:6px;background:#0a1813;border-radius:99px;overflow:hidden;border:1px solid #142a21}
+  .fill{height:100%;background:linear-gradient(90deg,#0e7a55,var(--green));border-radius:99px}
+  .score{font-size:12px;color:var(--green);font-weight:600;width:42px;text-align:right}
+
+  .report{margin-top:12px;background:var(--panel2);border:1px solid var(--line);border-left:3px solid var(--green);
+    border-radius:10px;padding:12px 14px;font-size:13.5px;line-height:1.6;white-space:pre-wrap;color:#dcefe6}
+  .ground{margin-top:8px;font-size:11.5px;color:var(--muted)}
+
+  /* composer */
+  .composer{position:sticky;bottom:0;background:linear-gradient(180deg,transparent,var(--bg) 22%);padding:14px 0 18px}
+  .inwrap{display:flex;gap:10px;align-items:flex-end;background:var(--panel);border:1px solid var(--line);
+    border-radius:15px;padding:9px 9px 9px 15px;box-shadow:var(--shadow)}
+  .inwrap:focus-within{border-color:var(--green);box-shadow:0 0 0 3px var(--green-dim)}
+  #q{flex:1;background:transparent;border:none;color:var(--txt);font-size:14.5px;resize:none;outline:none;
+    font-family:inherit;max-height:140px;line-height:1.5;padding:6px 0}
+  #q::placeholder{color:var(--faint)}
+  #send{width:40px;height:40px;border:none;border-radius:11px;cursor:pointer;flex:none;
+    background:linear-gradient(135deg,var(--green),#0e7a55);color:#04140d;font-size:17px;display:grid;place-items:center}
+  #send:disabled{opacity:.5;cursor:default}
+  .foot{text-align:center;color:var(--faint);font-size:11px;margin-top:9px}
+
+  /* settings drawer */
+  .drawer{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;z-index:20;align-items:flex-start;justify-content:center}
+  .drawer.open{display:flex}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;margin-top:80px;width:min(440px,92vw);padding:22px;box-shadow:var(--shadow)}
+  .panel h3{margin:0 0 16px}
+  .row{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;gap:12px}
+  .row label{font-size:13.5px}.row .desc{font-size:11.5px;color:var(--faint);margin-top:2px}
+  .panel input[type=text],.panel input[type=number]{background:var(--bg2);border:1px solid var(--line);color:var(--txt);
+    border-radius:9px;padding:8px 11px;font-size:13px;width:190px;font-family:inherit}
+  .switch{position:relative;width:42px;height:24px;flex:none}
+  .switch input{opacity:0;width:0;height:0}
+  .slider{position:absolute;inset:0;background:#1d2e27;border-radius:99px;transition:.2s;cursor:pointer}
+  .slider:before{content:"";position:absolute;height:18px;width:18px;left:3px;top:3px;background:#7f9b8d;border-radius:50%;transition:.2s}
+  .switch input:checked+.slider{background:var(--green-dim)}
+  .switch input:checked+.slider:before{transform:translateX(18px);background:var(--green)}
+  .close{float:right;cursor:pointer;color:var(--muted);font-size:20px;line-height:1}
+  .typing{display:flex;gap:5px;padding:4px 0}
+  .typing span{width:7px;height:7px;background:var(--green);border-radius:50%;animation:bob 1.2s infinite}
+  .typing span:nth-child(2){animation-delay:.2s}.typing span:nth-child(3){animation-delay:.4s}
+  @keyframes bob{0%,60%,100%{opacity:.3;transform:translateY(0)}30%{opacity:1;transform:translateY(-4px)}}
+  ::-webkit-scrollbar{width:9px}::-webkit-scrollbar-thumb{background:#1d3329;border-radius:9px}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">
+    <div class="mark">⚽</div>
+    <div class="brand">ScoutRAG<small>HYBRID RETRIEVAL · FM24 PROTOTYPE DATA</small></div>
+  </div>
+  <div class="spacer"></div>
+  <div class="status" id="status" onclick="checkHealth()">
+    <span class="dot" id="dot"></span><span id="statusTxt">checking…</span>
+  </div>
+  <button class="icon-btn" onclick="toggleSettings(true)" title="Settings">⚙</button>
+</header>
+
+<main>
+  <div id="chat">
+    <div class="hero" id="hero">
+      <h1>Scout players in <span>plain language</span></h1>
+      <p>Describe the player you want — precise numbers, positions, nationalities, budgets, or
+         vague scouting terms like “clinical”, “visionary”, “powerful”. ScoutRAG filters strictly,
+         then ranks the best matches first.</p>
+      <div class="chips" id="chips"></div>
+    </div>
+  </div>
+
+  <div class="composer">
+    <div class="inwrap">
+      <textarea id="q" rows="1" placeholder="e.g. left-footed centre-back under 23, passing > 15, valued under €10M"></textarea>
+      <button id="send" onclick="ask()" title="Search">➤</button>
+    </div>
+    <div class="foot">FM24 attributes are designer-set game data, not real-world scouting data.</div>
+  </div>
+</main>
+
+<div class="drawer" id="drawer" onclick="if(event.target.id==='drawer')toggleSettings(false)">
+  <div class="panel">
+    <span class="close" onclick="toggleSettings(false)">✕</span>
+    <h3>Settings</h3>
+    <div class="row">
+      <div><label>Backend URL</label><div class="desc">Your local FastAPI server</div></div>
+      <input type="text" id="backend" />
+    </div>
+    <div class="row">
+      <div><label>Results (top k)</label><div class="desc">Max players to return</div></div>
+      <input type="number" id="topk" min="1" max="50" value="10" />
+    </div>
+    <div class="row">
+      <div><label>LLM query rewriting</label><div class="desc">Use local Ollama for fuzzy terms</div></div>
+      <label class="switch"><input type="checkbox" id="useLlm" checked><span class="slider"></span></label>
+    </div>
+    <div class="row">
+      <div><label>Grounded report</label><div class="desc">Generate + verify a scouting summary</div></div>
+      <label class="switch"><input type="checkbox" id="makeReport"><span class="slider"></span></label>
+    </div>
+  </div>
+</div>
+
+<script>
+const EXAMPLES = [
+  ["Left-footed centre-back, <b>passing &gt; 15</b>, under 23, valued under €10M"],
+  ["<b>Turkish or Brazilian</b> winger under 21"],
+  ["Players whose <b>passing is between 10 and 17</b>, under 20 or over 35"],
+  ["Top 5 <b>clinical</b>, <b>strong</b> and <b>fast</b> strikers"],
+  ["<b>Commanding</b> goalkeeper with great <b>reflexes</b>"],
+  ["<b>Visionary</b> German playmaker, wage under €200k"],
+];
+const cfg = {
+  backend: localStorage.getItem('sr_backend') || 'http://localhost:8000',
+  topk: +(localStorage.getItem('sr_topk')||10),
+  useLlm: localStorage.getItem('sr_useLlm')!=='0',
+  makeReport: localStorage.getItem('sr_report')==='1',
+};
+const $ = s=>document.querySelector(s);
+const chat=$('#chat'), hero=$('#hero');
+
+function initSettings(){
+  $('#backend').value=cfg.backend; $('#topk').value=cfg.topk;
+  $('#useLlm').checked=cfg.useLlm; $('#makeReport').checked=cfg.makeReport;
+}
+function saveSettings(){
+  cfg.backend=$('#backend').value.replace(/\/$/,''); cfg.topk=+$('#topk').value;
+  cfg.useLlm=$('#useLlm').checked; cfg.makeReport=$('#makeReport').checked;
+  localStorage.setItem('sr_backend',cfg.backend); localStorage.setItem('sr_topk',cfg.topk);
+  localStorage.setItem('sr_useLlm',cfg.useLlm?'1':'0'); localStorage.setItem('sr_report',cfg.makeReport?'1':'0');
+}
+['backend','topk','useLlm','makeReport'].forEach(id=>{
+  document.addEventListener('change',e=>{if(e.target.id===id){saveSettings(); if(id==='backend')checkHealth();}});
+});
+function toggleSettings(open){$('#drawer').classList.toggle('open',open)}
+
+function renderChips(){
+  const c=$('#chips');
+  EXAMPLES.forEach(([html])=>{
+    const b=document.createElement('button'); b.className='chip'; b.innerHTML=html;
+    b.onclick=()=>{$('#q').value=b.textContent; ask();};
+    c.appendChild(b);
+  });
+}
+
+async function checkHealth(){
+  const dot=$('#dot'), txt=$('#statusTxt');
+  dot.className='dot'; txt.textContent='checking…';
+  try{
+    const r=await fetch(cfg.backend+'/health',{cache:'no-store'});
+    const j=await r.json();
+    dot.className='dot on';
+    txt.textContent=`${j.players.toLocaleString()} players · sem ${j.semantic?'on':'off'} · llm ${j.ollama?'on':'off'}`;
+  }catch(e){ dot.className='dot off'; txt.textContent='backend offline'; }
+}
+
+function esc(s){return (s==null?'':String(s)).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}
+function fmtMoney(v){ if(v==null) return null; if(v>=1e6) return '€'+(v/1e6).toFixed(1).replace(/\.0$/,'')+'M';
+  if(v>=1e3) return '€'+Math.round(v/1e3)+'K'; return '€'+Math.round(v);}
+
+function userMsg(text){
+  hero.style.display='none';
+  const m=document.createElement('div'); m.className='msg user';
+  m.innerHTML=`<div class="av">U</div><div class="bubble">${esc(text)}</div>`;
+  chat.appendChild(m); chat.scrollTop=chat.scrollHeight;
+}
+function botShell(){
+  const m=document.createElement('div'); m.className='msg bot';
+  m.innerHTML=`<div class="av">⚽</div><div class="bubble"><div class="typing"><span></span><span></span><span></span></div></div>`;
+  chat.appendChild(m); chat.scrollTop=chat.scrollHeight;
+  return m.querySelector('.bubble');
+}
+
+function playerCard(p,i){
+  const pct=Math.round((p.match_score||0)*100);
+  const bits=[];
+  bits.push(`<b>${esc(p.Nationality)}</b>`);
+  if(p.Age!=null) bits.push(`age ${p.Age}`);
+  if(p.Club_Name) bits.push(esc(p.Club_Name));
+  if(p.League) bits.push(esc(p.League));
+  if(p.Foot && p.Foot!=='Unknown') bits.push(p.Foot+'-footed');
+  const money=fmtMoney(p.Value_EUR);
+  if(money) bits.push(money);
+  return `<div class="card">
+    <div class="rank">${i+1}</div>
+    <div class="card-top"><span class="pname">${esc(p.Player_Name)}</span>
+      <span class="ppos">${esc(p.Position)}</span></div>
+    <div class="pinfo">${bits.join(' · ')}</div>
+    <div class="scorebar"><span class="label">match score</span>
+      <div class="track"><div class="fill" style="width:${pct}%"></div></div>
+      <span class="score">${pct}%</span></div>
+  </div>`;
+}
+
+async function ask(){
+  const q=$('#q').value.trim(); if(!q) return;
+  $('#q').value=''; $('#q').style.height='auto';
+  userMsg(q);
+  const bubble=botShell();
+  try{
+    const r=await fetch(cfg.backend+'/search',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({query:q,top_k:cfg.topk,use_llm:cfg.useLlm,make_report:cfg.makeReport})
+    });
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const d=await r.json();
+    let html='';
+    const tags=[];
+    if(d.used_llm && d.rewritten_query) tags.push(`<span class="tag k">LLM → ${esc(d.rewritten_query)}</span>`);
+    (d.constraints||[]).forEach(c=>tags.push(`<span class="tag">${esc(c)}</span>`));
+    if(tags.length) html+=`<div class="meta">${tags.join('')}</div>`;
+
+    if(d.message){
+      html+=`<div class="nomatch">⚠ ${esc(d.message)}</div>`;
+    }else{
+      html+=`<div style="font-size:13px;color:var(--muted);margin-bottom:4px">
+        ${d.players.length} match${d.players.length>1?'es':''} (from ${d.n_filtered.toLocaleString()} that passed filters), ranked best→worst:</div>`;
+      if(d.summary) html+=`<div class="summary">${esc(d.summary)}</div>`;
+      html+=`<div class="grid">${d.players.map(playerCard).join('')}</div>`;
+      if(d.report){
+        html+=`<div class="report">${esc(d.report)}</div>`;
+        if(d.grounding) html+=`<div class="ground">Grounding score:
+          <b style="color:var(--green)">${Math.round(d.grounding.grounding_score*100)}%</b>
+          · ${d.grounding.total_checked} claims checked · ${d.grounding.hallucination_count} ungrounded</div>`;
+      }
+    }
+    bubble.innerHTML=html;
+  }catch(e){
+    bubble.innerHTML=`<div class="nomatch">⚠ Could not reach the backend at
+      <b>${esc(cfg.backend)}</b>. Start it with <code>uvicorn backend.app:app --port 8000</code>
+      and check the URL in settings.</div>`;
+  }
+  chat.scrollTop=chat.scrollHeight;
+}
+
+$('#q').addEventListener('input',e=>{e.target.style.height='auto';e.target.style.height=e.target.scrollHeight+'px';});
+$('#q').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();ask();}});
+
+initSettings(); renderChips(); checkHealth();
+</script>
+</body>
+</html>
