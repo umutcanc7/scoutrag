@@ -463,7 +463,8 @@ def parse_query(query: str, known_clubs=None) -> dict:
         # treat as max unless an explicit 'over/above/more than' appears just before
         v = _money(mm.group(1), mm.group(2))
         if v >= 1000:  # ignore tiny numbers that are really ages/attrs
-            if re.search(r"(over|above|more than|at least|minimum)", mm.group(0)):
+            if re.search(r"(over|above|more than|higher than|greater than|"
+                         r"north of|exceed(?:s|ing)?|at least|minimum)", mm.group(0)):
                 r["value"]["min"] = v
                 trace(f"value >= EUR{v:,.0f}")
             else:
@@ -476,7 +477,8 @@ def parse_query(query: str, known_clubs=None) -> dict:
                           r"\s*(?:eur|€|\$)?\s*" + _NUM + r"\s*(?:p/?w|p/?m|per week|per month|/week|/month)?", q):
         v = _money(mm.group(1), mm.group(2))
         if v >= 100:
-            if re.search(r"(over|above|more than|at least)", mm.group(0)):
+            if re.search(r"(over|above|more than|higher than|greater than|"
+                         r"north of|exceed(?:s|ing)?|at least|minimum)", mm.group(0)):
                 r["wage"]["min"] = v
                 trace(f"wage >= EUR{v:,.0f}")
             else:
