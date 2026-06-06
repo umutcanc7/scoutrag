@@ -157,7 +157,16 @@ def do_search(req: SearchRequest):
                 "constraints": [f"player lookup: {records[0]['Player_Name']}"],
                 "summary": scout_llm.generate_player_info(records[0]),
             }
-        # fall through to search if the name wasn't found
+        else:
+            name_sought = route["player"] or query
+            return {
+                "query": query, "mode": "info",
+                "rewritten_query": None, "used_llm": route["used_llm"],
+                "message": None,
+                "players": [], "n_filtered": 0,
+                "constraints": [f"player lookup: {name_sought}"],
+                "summary": scout_llm.generate_not_found_message(name_sought, route["used_llm"]),
+            }
 
     # --- 3. SIMILAR: players like a reference player ------------------------ #
     if intent == "similar":
@@ -235,6 +244,15 @@ def do_search(req: SearchRequest):
                 "message": None, "players": records, "n_filtered": len(records),
                 "constraints": [f"player lookup: {records[0]['Player_Name']}"],
                 "summary": scout_llm.generate_player_info(records[0]),
+            }
+        else:
+            return {
+                "query": query, "mode": "info",
+                "rewritten_query": None, "used_llm": route["used_llm"],
+                "message": None,
+                "players": [], "n_filtered": 0,
+                "constraints": [f"player lookup: {query}"],
+                "summary": scout_llm.generate_not_found_message(query, route["used_llm"]),
             }
 
     # explicit "top N" in the query wins; then the router's count; then the UI default

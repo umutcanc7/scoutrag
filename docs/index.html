@@ -407,8 +407,10 @@ async function ask(){
     if(d.message){
       html+=`<div class="nomatch">⚠ ${esc(d.message)}</div>`;
     }else if(d.mode==='info'){
-      html+=`<div style="font-size:13px;color:var(--muted);margin-bottom:4px">
-        Player profile${d.players.length>1?'s ('+d.players.length+' name matches)':''}:</div>`;
+      if(d.players.length > 0){
+        html+=`<div style="font-size:13px;color:var(--muted);margin-bottom:4px">
+          Player profile${d.players.length>1?'s ('+d.players.length+' name matches)':''}:</div>`;
+      }
       if(d.summary) html+=`<div class="summary">${esc(d.summary)}</div>`;
       html+=`<div class="grid">${d.players.map(playerCard).join('')}</div>`;
     }else if(d.mode==='similar'){
