@@ -21,13 +21,14 @@ Setup (one time, on the user's Mac):
 from __future__ import annotations
 
 import json
+import os
 import re
 import urllib.request
 
 from .core import ATTR_READABLE
 
-OLLAMA_URL = "http://localhost:11434/api/chat"
-DEFAULT_MODEL = "llama3.1:latest"
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434/api/chat")
+DEFAULT_MODEL = os.getenv("SCOUTRAG_MODEL", "llama3.1:latest")
 
 _REWRITE_SYSTEM = (
     "You are a query rewriter for a football scouting search engine.\n"
@@ -404,3 +405,18 @@ def verify_grounding(report_text: str, players) -> dict:
     if vr["total_checked"]:
         vr["grounding_score"] = 1.0 - vr["hallucination_count"] / vr["total_checked"]
     return vr
+
+
+_NOT_FOUND_SYSTEM = (
+    "You are a professional football scouting assistant. The user searched for a specific player "
+    "but they are not in the database. Write a short, professional 1-2 sentence message. "
+    "You may briefly apologize for the inconvenience, but keep it concise and direct. Do not invent any names."
+)
+
+def generate_not_found_message(query: str, use_llm: bool, model: str = DEFAULT_MODEL) -> str:
+    """Generate a polite 'not found' message using the LLM if requested and available."""
+    if use_llm and ollama_available(model):
+        out = _ollama_chat(_NOT_FOUND_SYSTEM, f"Player name: {query}", model=model, max_tokens=100, temperature=0.3)
+        if out:
+            return out.strip()
+    return f"The player '{query}' could not be located in the current database."
