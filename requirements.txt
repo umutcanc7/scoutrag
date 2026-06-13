@@ -1,25 +1,15 @@
-# ScoutRAG — local dependencies (Python 3.10+)
+# ScoutRAG — HuggingFace Spaces dependencies (Python 3.10)
 pandas>=2.0
 numpy>=1.24
-matplotlib>=3.7
-seaborn>=0.12
 
-# Semantic retrieval (CPU is fine on Apple Silicon; MPS used automatically if available)
+# Semantic retrieval
 sentence-transformers>=2.2
 scikit-learn>=1.3
+faiss-cpu>=1.7
 
-# Optional exact-NN index. faiss-cpu works on macOS; sklearn cosine is the fallback.
-faiss-cpu>=1.7 ; platform_system != "Darwin" or platform_machine != "arm64"
-
-# Local API backend for the web UI
-fastapi>=0.110
-uvicorn[standard]>=0.27
-pydantic>=2.0
-
-# Gradio demo app (app_gradio.py) — one-command shareable demo link
-gradio>=4.0
-
-# LLM API — set ANTHROPIC_API_KEY env var to enable LLM features.
-# Without it, the system falls back to rule-based query parsing and
+# LLM API — set ANTHROPIC_API_KEY as a Space Secret to enable LLM features.
+# Without it the system falls back to rule-based query parsing and
 # deterministic report templates (fully functional, just less fluent).
 anthropic>=0.28
+audioop-lts; python_version >= "3.13"
+gradio>=5.0
