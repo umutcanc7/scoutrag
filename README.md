@@ -1,3 +1,15 @@
+---
+title: ScoutRAG
+emoji: ⚽
+colorFrom: green
+colorTo: blue
+sdk: gradio
+sdk_version: "4.0"
+app_file: app.py
+pinned: false
+license: mit
+---
+
 # ScoutRAG — Constrained Hybrid Retrieval for Football Player Scouting
 
 **CS455 (Large Language Models), Spring 2025/2026 — standard track term project.**
@@ -17,6 +29,16 @@ the retrieved rows.
 > system is **not** Text-to-SQL — there is no executable SQL generation. The honest framing is
 > *constrained hybrid structured-symbolic + semantic retrieval over tabular player data*, and the
 > most interesting contribution is the **post-generation grounding verification** step.
+
+> **Data source & acquisition (CS455 §8 compliance).** Football Manager 2024 includes a
+> built-in, officially supported scouting-view export command that writes selected columns to an
+> RTF file on disk. We used this in-game feature — no web scraping, no third-party tools, no
+> reverse engineering. The RTF was then converted to CSV via `convert_fm_table.py` (included in
+> the repo). Because the export is an official, documented game feature (not a Terms-of-Service
+> violation), no special permission was required beyond owning a licensed copy of the game. All
+> player attributes in the resulting CSV are synthetic designer-set values, not personal data, so
+> no anonymization or data-protection obligation applies. The conversion script and the resulting
+> `fmdata24llm.csv` are both included in the submission for full reproducibility.
 
 ---
 

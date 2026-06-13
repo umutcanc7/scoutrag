@@ -1,4 +1,4 @@
-"""Local LLM integration for ScoutRAG via Ollama.
+"""LLM integration for ScoutRAG via Anthropic API.
 
 Two jobs:
   1. rewrite_query(): turn an informal / descriptive scouting query
@@ -7,15 +7,15 @@ Two jobs:
   2. generate_report(): write a short grounded scouting report from the
      retrieved player rows only.
 
-Everything degrades gracefully: if Ollama is not running, rewrite_query falls
-back to the original query (the rule-based parser already understands many
+Everything degrades gracefully: if ANTHROPIC_API_KEY is not set, rewrite_query
+falls back to the original query (the rule-based parser already understands many
 scouting adjectives via its synonym map), and generate_report returns a
 deterministic template instead.
 
-Setup (one time, on the user's Mac):
-    brew install ollama        # or download from ollama.com
-    ollama serve               # starts the local server on :11434
-    ollama pull llama3.1   # or any local model; set DEFAULT_MODEL below to match
+Setup:
+    pip install anthropic
+    export ANTHROPIC_API_KEY="sk-ant-..."
+    # or on HuggingFace Spaces: add ANTHROPIC_API_KEY as a Secret
 """
 
 from __future__ import annotations
@@ -23,12 +23,10 @@ from __future__ import annotations
 import json
 import os
 import re
-import urllib.request
 
 from .core import ATTR_READABLE
 
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434/api/chat")
-DEFAULT_MODEL = os.getenv("SCOUTRAG_MODEL", "llama3.1:latest")
+DEFAULT_MODEL = os.getenv("SCOUTRAG_MODEL", "claude-haiku-4-5")
 
 _REWRITE_SYSTEM = (
     "You are a query rewriter for a football scouting search engine.\n"
@@ -59,46 +57,40 @@ _REWRITE_SYSTEM = (
 )
 
 
-def ollama_available(model: str = DEFAULT_MODEL, timeout: float = 1.5) -> bool:
-    """Return True if a local Ollama server is reachable."""
-    try:
-        req = urllib.request.Request("http://localhost:11434/api/tags")
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return resp.status == 200
-    except Exception:
-        return False
+def _api_available() -> bool:
+    """Return True if ANTHROPIC_API_KEY is set."""
+    return bool(os.getenv("ANTHROPIC_API_KEY", "").strip())
 
 
-def _ollama_chat(system: str, user: str, model: str = DEFAULT_MODEL,
-                 temperature: float = 0.1, max_tokens: int = 256,
-                 timeout: float = 60) -> str | None:
-    payload = {
-        "model": model,
-        "messages": [{"role": "system", "content": system},
-                     {"role": "user", "content": user}],
-        "stream": False,
-        "options": {"temperature": temperature, "num_predict": max_tokens},
-    }
-    data = json.dumps(payload).encode()
-    req = urllib.request.Request(OLLAMA_URL, data=data,
-                                 headers={"Content-Type": "application/json"})
+def _anthropic_chat(system: str, user: str,
+                    model: str = DEFAULT_MODEL,
+                    temperature: float = 0.1,
+                    max_tokens: int = 256) -> str | None:
+    """Call Anthropic Messages API and return the text response, or None on error."""
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            out = json.loads(resp.read().decode())
-        return out.get("message", {}).get("content", "").strip()
+        import anthropic
+        client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+        message = client.messages.create(
+            model=model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            system=system,
+            messages=[{"role": "user", "content": user}],
+        )
+        return message.content[0].text.strip()
     except Exception:
         return None
 
 
 def rewrite_query(query: str, model: str = DEFAULT_MODEL) -> tuple[str, bool]:
-    """Rewrite an informal query into a structured one using the local LLM.
+    """Rewrite an informal query into a structured one using the LLM.
 
     Returns (rewritten_query, was_rewritten). Falls back to the original query
-    (was_rewritten=False) when Ollama is unavailable or returns nothing usable.
+    when the API is unavailable or returns nothing usable.
     """
-    if not ollama_available(model):
+    if not _api_available():
         return query, False
-    out = _ollama_chat(_REWRITE_SYSTEM, f"In: {query}\nOut:", model=model)
+    out = _anthropic_chat(_REWRITE_SYSTEM, f"In: {query}\nOut:", model=model)
     if not out:
         return query, False
     out = out.splitlines()[0].strip()
@@ -155,7 +147,7 @@ _SIMILAR_CUE = re.compile(
 
 
 def _heuristic_route(query: str) -> dict:
-    """Rule-based fallback router used when Ollama is unavailable."""
+    """Rule-based fallback router used when the API is unavailable."""
     q = query.strip()
     out = {"intent": "search", "player": "", "query": q, "top_k": 0, "used_llm": False}
 
@@ -165,7 +157,6 @@ def _heuristic_route(query: str) -> dict:
         out["top_k"] = int(m_top.group(1))
 
     if _SIMILAR_CUE.search(q):
-        # reference name = text after the last similarity cue word
         ref = _SIMILAR_CUE.split(q)[-1]
         ref = re.sub(r"^\s*(?:to|as|of)\s+", "", ref).strip(" ,.?!")
         out["intent"] = "similar"
@@ -175,7 +166,6 @@ def _heuristic_route(query: str) -> dict:
     mp = _INFO_PREFIX.match(q)
     if mp:
         name = q[mp.end():].strip(" ,.?!")
-        # only treat as info if what's left looks like a name (<=4 words, letters)
         if name and len(name.split()) <= 4 and re.search(r"[A-Za-zÀ-ÿ]", name):
             out["intent"] = "info"
             out["player"] = name
@@ -186,13 +176,13 @@ def _heuristic_route(query: str) -> dict:
 def route_query(query: str, model: str = DEFAULT_MODEL) -> dict:
     """Classify a query into info / similar / search and extract fields.
 
-    Returns {"intent", "player", "query", "top_k", "used_llm"}. Uses the local
-    LLM when available; otherwise falls back to rule-based routing.
+    Returns {"intent", "player", "query", "top_k", "used_llm"}. Uses the
+    Anthropic API when available; otherwise falls back to rule-based routing.
     """
-    if not ollama_available(model):
+    if not _api_available():
         return _heuristic_route(query)
-    raw = _ollama_chat(_ROUTER_SYSTEM, f"In: {query}\nOut:", model=model,
-                       temperature=0.0, max_tokens=200)
+    raw = _anthropic_chat(_ROUTER_SYSTEM, f"In: {query}\nOut:",
+                          model=model, temperature=0.0, max_tokens=200)
     if not raw:
         return _heuristic_route(query)
     m = re.search(r"\{.*\}", raw, re.S)
@@ -237,17 +227,17 @@ _REPORT_SYSTEM = (
 def generate_report(query, players, model: str = DEFAULT_MODEL) -> str:
     """Generate a grounded scouting report from retrieved player records.
 
-    `players` is the list of dicts returned by core.search()['players'].
-    Falls back to a deterministic template when Ollama is unavailable.
+    Falls back to a deterministic template when the API is unavailable.
     """
     if not players:
         from .core import NO_MATCH_MESSAGE
         return NO_MATCH_MESSAGE
-    if not ollama_available(model):
+    if not _api_available():
         return _template_report(query, players)
     ctx = json.dumps(players[:5], ensure_ascii=False, indent=2)
-    out = _ollama_chat(_REPORT_SYSTEM, f"Query: {query}\n\nPlayers (JSON):\n{ctx}",
-                       model=model, max_tokens=400, temperature=0.2)
+    out = _anthropic_chat(_REPORT_SYSTEM,
+                          f"Query: {query}\n\nPlayers (JSON):\n{ctx}",
+                          model=model, max_tokens=400, temperature=0.2)
     return out or _template_report(query, players)
 
 
@@ -261,20 +251,17 @@ _SUMMARY_SYSTEM = (
 
 
 def generate_summary(query, players, model: str = DEFAULT_MODEL) -> str:
-    """Return a single short paragraph describing the ranked shortlist.
-
-    Uses the local LLM if Ollama is running; otherwise builds a clean,
-    fully-grounded deterministic paragraph from the top players.
-    """
+    """Return a single short paragraph describing the ranked shortlist."""
     if not players:
         return ""
-    if ollama_available(model):
+    if _api_available():
         ctx = json.dumps([{k: p.get(k) for k in
                            ("Player_Name", "Age", "Position", "Nationality",
                             "Club_Name", "League", "Value_EUR", "match_score")}
                           for p in players[:5]], ensure_ascii=False)
-        out = _ollama_chat(_SUMMARY_SYSTEM, f"Query: {query}\n\nRanked players (JSON):\n{ctx}",
-                           model=model, max_tokens=220, temperature=0.3)
+        out = _anthropic_chat(_SUMMARY_SYSTEM,
+                              f"Query: {query}\n\nRanked players (JSON):\n{ctx}",
+                              model=model, max_tokens=220, temperature=0.3)
         if out:
             return out.strip()
     return _template_summary(query, players)
@@ -294,7 +281,7 @@ def _template_summary(query, players) -> str:
     elif len(rest) == 2:
         rest_txt = f", ahead of {rest[0]} and {rest[1]}"
     plural = "players" if n != 1 else "player"
-    return (f"The shortlist returns {n} {plural} for “{query}”, ranked by how well "
+    return (f"The shortlist returns {n} {plural} for \"{query}\", ranked by how well "
             f"they meet the requested criteria blended with overall quality. {lead} tops the "
             f"list{rest_txt}. These attributes are Football Manager 2024 game data, not "
             f"real-world scouting data.")
@@ -329,10 +316,10 @@ def generate_player_info(player: dict, model: str = DEFAULT_MODEL) -> str:
     """Return a brief grounded profile of a single player record."""
     if not player:
         return ""
-    if ollama_available(model):
+    if _api_available():
         ctx = json.dumps(player, ensure_ascii=False)
-        out = _ollama_chat(_INFO_SYSTEM, f"Player (JSON):\n{ctx}",
-                           model=model, max_tokens=220, temperature=0.3)
+        out = _anthropic_chat(_INFO_SYSTEM, f"Player (JSON):\n{ctx}",
+                              model=model, max_tokens=220, temperature=0.3)
         if out:
             return out.strip()
     return _template_info(player)
@@ -346,7 +333,6 @@ def _template_info(p: dict) -> str:
     league = f" ({p['League']})" if p.get("League") else ""
     foot = f" {p['Foot']}-footed." if p.get("Foot") and p["Foot"] != "Unknown" else ""
     val = (f" Transfer value about EUR{p['Value_EUR']:,.0f}." if p.get("Value_EUR") else "")
-    # standout attributes = highest numeric ATTR_READABLE values present
     attrs = [(ATTR_READABLE[k], p[k]) for k in ATTR_READABLE
              if isinstance(p.get(k), (int, float)) and p.get(k) is not None]
     attrs.sort(key=lambda x: -x[1])
@@ -363,11 +349,7 @@ def _template_info(p: dict) -> str:
 
 def verify_grounding(report_text: str, players) -> dict:
     """Check that names and numeric attribute citations in a generated report
-    are supported by the retrieved player records.
-
-    Returns dict with supported_facts, mismatched_facts, unsupported_players,
-    total_checked, hallucination_count, grounding_score.
-    """
+    are supported by the retrieved player records."""
     vr = {"supported_facts": [], "mismatched_facts": [], "unsupported_players": [],
           "total_checked": 0, "hallucination_count": 0, "grounding_score": 1.0}
     if not players:
@@ -375,8 +357,7 @@ def verify_grounding(report_text: str, players) -> dict:
 
     names = {str(p.get("Player_Name", "")).lower(): p for p in players}
 
-    # 1. capitalised 2-4 word sequences that look like player names
-    for cand in re.findall(r"(?:[A-ZÀ-Þ][\wÀ-ÿ'’.-]+\s+){1,3}[A-ZÀ-Þ][\wÀ-ÿ'’.-]+", report_text):
+    for cand in re.findall(r"(?:[A-ZÀ-Þ][\wÀ-ÿ''.-]+\s+){1,3}[A-ZÀ-Þ][\wÀ-ÿ''.-]+", report_text):
         cl = cand.lower().strip()
         if any(cl in rn or rn in cl for rn in names):
             vr["supported_facts"].append(f"player ok: {cand}")
@@ -385,7 +366,6 @@ def verify_grounding(report_text: str, players) -> dict:
             vr["hallucination_count"] += 1
         vr["total_checked"] += 1
 
-    # 2. numeric attribute citations: "finishing 17", "passing = 15", "vision: 16"
     readable_to_col = {v.lower(): k for k, v in ATTR_READABLE.items()}
     pat = r"(" + "|".join(re.escape(r) for r in readable_to_col) + r")\s*[:=]?\s*(\d{1,2})\b"
     for rd, val in re.findall(pat, report_text.lower()):
@@ -393,7 +373,6 @@ def verify_grounding(report_text: str, players) -> dict:
         cited = int(val)
         actual = [p.get(col) for p in players if col in p]
         vr["total_checked"] += 1
-        # if the cited attribute isn't even in the record schema, skip silently
         if not actual:
             continue
         if cited in [a for a in actual if a is not None]:
@@ -415,8 +394,9 @@ _NOT_FOUND_SYSTEM = (
 
 def generate_not_found_message(query: str, use_llm: bool, model: str = DEFAULT_MODEL) -> str:
     """Generate a polite 'not found' message using the LLM if requested and available."""
-    if use_llm and ollama_available(model):
-        out = _ollama_chat(_NOT_FOUND_SYSTEM, f"Player name: {query}", model=model, max_tokens=100, temperature=0.3)
+    if use_llm and _api_available():
+        out = _anthropic_chat(_NOT_FOUND_SYSTEM, f"Player name: {query}",
+                              model=model, max_tokens=100, temperature=0.3)
         if out:
             return out.strip()
     return f"The player '{query}' could not be located in the current database."

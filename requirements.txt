@@ -16,6 +16,10 @@ fastapi>=0.110
 uvicorn[standard]>=0.27
 pydantic>=2.0
 
-# The local LLM (Ollama) is a separate native app — install via `brew install ollama`,
-# then: `ollama pull llama3.1` (or set DEFAULT_MODEL in scoutrag/llm.py to your model).
-# No Python package required; we call its HTTP API.
+# Gradio demo app (app_gradio.py) — one-command shareable demo link
+gradio>=4.0
+
+# LLM API — set ANTHROPIC_API_KEY env var to enable LLM features.
+# Without it, the system falls back to rule-based query parsing and
+# deterministic report templates (fully functional, just less fluent).
+anthropic>=0.28
