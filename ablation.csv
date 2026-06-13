@@ -1,0 +1,40 @@
+id,query,target_player,struct_found,struct_n,semantic_found,semantic_n,hybrid_found,hybrid_n,winner
+1,central midfielder at Fenerbahce with tackling >= 14 and passing >= 12,İsmail Yüksek,True,1,False,20,True,1,structured+hybrid
+2,Nigerian striker with pace >= 18 and finishing >= 16 under 25,Victor Osimhen,True,1,True,20,True,1,structured+semantic+hybrid
+3,Bosnian striker with heading >= 16 and strength >= 17 at Fenerbahce,Edin Džeko,True,1,True,20,True,1,structured+semantic+hybrid
+4,left-footed attacking midfielder with passing >= 17 at Fenerbahce,Dušan Tadić,False,0,False,20,False,0,none
+5,left-footed defensive midfielder at Fenerbahce with acceleration >= 16,Fred,True,1,False,20,True,1,structured+hybrid
+6,Turkish full-back under 24 with dribbling >= 13 at Fenerbahce,Ferdi Kadıoğlu,True,1,False,20,True,1,structured+hybrid
+7,left-footed Turkish winger with acceleration >= 16 at Fenerbahce,Cengiz Ünder,True,1,False,20,True,1,structured+hybrid
+8,Polish midfielder under 25 at Fenerbahce with vision >= 15,Sebastian Szymański,False,0,False,20,False,0,none
+9,Croatian goalkeeper at Fenerbahce,Dominik Livaković,True,1,False,20,True,1,structured+hybrid
+10,Argentinian attacking midfielder with technique >= 19 and dribbling >= 19,Lionel Messi,False,0,True,20,False,0,semantic
+11,Belgian midfielder with passing >= 17 and vision >= 19,Kevin De Bruyne,True,1,True,20,True,1,structured+semantic+hybrid
+12,French striker with pace >= 19 and acceleration >= 19,Kylian Mbappé,True,1,True,20,True,1,structured+semantic+hybrid
+13,Spanish defensive midfielder with tackling >= 16 and marking >= 12,Rodri,True,7,False,20,True,7,structured+hybrid
+14,Norwegian striker under 23 with heading >= 14 and finishing >= 17,Erling Haaland,True,1,False,20,True,1,structured+hybrid
+15,Dutch centre-back at Liverpool with strength >= 16 and heading >= 16,Virgil van Dijk,True,1,False,20,True,1,structured+hybrid
+16,Egyptian winger at Liverpool with acceleration >= 17 and pace >= 16,Mohamed Salah,True,1,True,20,True,1,structured+semantic+hybrid
+17,English midfielder under 21 with dribbling >= 16 and finishing >= 15,Jude Bellingham,True,1,False,20,True,1,structured+hybrid
+18,Spanish midfielder under 21 at Barcelona with technique >= 16 and dribbling >= 16,Pedri,True,2,False,20,True,2,structured+hybrid
+19,English winger at Fenerbahce with acceleration >= 15,Ryan Kent,False,0,False,20,False,0,none
+20,Bosnian defensive midfielder at Fenerbahce with tackling >= 12 and work rate >= 12,Rade Krunić,True,3,False,20,True,3,structured+hybrid
+51,goalkeeper at Fenerbahce with one-on-ones >= 18,Dominik Livaković,True,1,False,20,True,1,structured+hybrid
+52,goalkeeper with aerial reach >= 19 and reflexes >= 18,Thibaut Courtois,True,1,True,20,True,1,structured+semantic+hybrid
+53,goalkeeper with eccentricity >= 18,André Onana,True,9,False,20,True,9,structured+hybrid
+54,goalkeeper with command of area >= 15 and reflexes >= 18,Thibaut Courtois,True,3,False,20,True,3,structured+hybrid
+56,goalkeeper with reflexes >= 19 and one-on-ones >= 17 at Real Madrid,Thibaut Courtois,True,1,False,20,True,1,structured+hybrid
+57,Turkish goalkeeper under 26 with eccentricity >= 14,İrfan Can Eğribayat,True,6,False,20,True,6,structured+hybrid
+58,goalkeeper at Fenerbahce with punching tendency >= 15,Dominik Livaković,True,5,False,20,True,5,structured+hybrid
+59,midfielder with corners >= 19 and free kicks >= 19,James Ward-Prowse,True,1,True,20,True,1,structured+semantic+hybrid
+60,English winger with off the ball >= 19,Raheem Sterling,True,1,True,20,True,1,structured+semantic+hybrid
+61,striker under 23 with determination >= 20,Erling Haaland,True,4,False,20,True,4,structured+hybrid
+62,attacking midfielder with flair >= 19,Lionel Messi,False,4,True,20,False,4,semantic
+63,centre-back with bravery >= 19,Nicolás Otamendi,True,12,True,20,True,12,structured+semantic+hybrid
+64,midfielder with long shots >= 17 and crossing >= 18,Kevin De Bruyne,True,3,True,20,True,3,structured+semantic+hybrid
+65,midfielder with concentration >= 17 and positioning >= 17,Rodri,True,3,False,20,True,3,structured+hybrid
+66,attacking midfielder with first touch >= 18 and flair >= 18,Lionel Messi,False,1,True,20,False,1,semantic
+67,striker with agility >= 16 and balance >= 16,Erling Haaland,True,8,False,20,True,8,structured+hybrid
+68,striker with off the ball >= 18 and determination >= 20,Erling Haaland,True,3,False,20,True,3,structured+hybrid
+69,midfielder with work rate >= 19 and stamina >= 20,James Ward-Prowse,True,1,False,20,True,1,structured+hybrid
+70,striker with natural fitness >= 19,Erling Haaland,True,13,False,20,True,13,structured+hybrid

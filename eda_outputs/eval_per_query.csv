@@ -1,0 +1,41 @@
+query,hybrid_csat,structured_csat,vector_csat,hybrid_n,structured_n
+"left-footed centre-back under 23 with passing > 15 and tackling >= 14, valued under 10M",1.0,1.0,0.0,2,2
+Turkish or Brazilian winger under 21,1.0,1.0,0.0,10,10
+"players whose passing is between 10 and 17, under 20 or over 35",1.0,1.0,0.1,10,10
+"top 5 clinical, strong and fast strikers",1.0,1.0,0.0,10,10
+commanding goalkeeper with great reflexes,1.0,1.0,0.7,10,10
+"visionary German playmaker, wage under 200k",1.0,1.0,0.0,10,10
+fast right-footed winger under 22 valued under 15M,1.0,1.0,0.0,10,10
+"tireless box-to-box midfielder, work rate > 15, stamina > 15",1.0,1.0,0.2,10,10
+"strong aerial centre-back, heading > 15",1.0,1.0,0.0,10,10
+young Brazilian striker under 20 with finishing >= 14,1.0,1.0,0.0,10,10
+experienced defensive midfielder over 30 with tackling >= 15,1.0,1.0,0.0,10,10
+"creative attacking midfielder, vision >= 16, under 24",1.0,1.0,0.0,10,10
+English goalkeeper with reflexes >= 15,1.0,1.0,0.0,10,10
+French or Spanish full-back under 25,1.0,1.0,0.0,10,10
+"powerful striker, strength >= 16, heading >= 14",1.0,1.0,0.0,10,10
+cheap teenager prospect valued under 2M,1.0,1.0,0.0,10,10
+"pacey forward, pace >= 17",1.0,1.0,0.0,10,10
+"composed centre-back, composure >= 15, under 26",1.0,1.0,0.0,10,10
+left winger with dribbling >= 16,1.0,1.0,0.0,10,10
+veteran goalkeeper over 33,1.0,1.0,0.0,10,10
+"clinical poacher, finishing >= 17",1.0,1.0,0.0,10,10
+Argentine playmaker with passing >= 16,1.0,1.0,0.2,7,7
+"defensive midfielder, tackling >= 15, aggression >= 14",1.0,1.0,0.0,10,10
+fast and skillful winger under 23 valued under 20M,1.0,1.0,0.0,10,10
+"tall strong target man, strength >= 15, heading >= 16",1.0,1.0,0.1,10,10
+young German midfielder under 21 with technique >= 15,1.0,1.0,0.0,10,10
+Dutch centre-back valued under 12M,1.0,1.0,0.0,10,10
+"high work rate striker, work rate >= 15",1.0,1.0,0.1,10,10
+"agile shot-stopper, reflexes >= 16, agility >= 15",1.0,1.0,0.2,10,10
+Italian or Portuguese winger under 24,1.0,1.0,0.0,10,10
+playmaker with vision >= 15 and passing >= 15,1.0,1.0,0.5,10,10
+physical defensive midfielder over 28,1.0,1.0,0.0,10,10
+"clinical and composed striker, finishing >= 15, composure >= 14",1.0,1.0,0.2,10,10
+young left-footed playmaker under 20,1.0,1.0,0.0,10,10
+Brazilian forward with pace >= 16 and finishing >= 14,1.0,1.0,0.0,4,4
+"experienced leader centre-back, leadership >= 15, over 29",1.0,1.0,0.0,10,10
+"fast full-back, pace >= 15, under 25",1.0,1.0,0.4,10,10
+"creative winger, flair >= 15, vision >= 14",1.0,1.0,0.3,10,10
+"strong and brave goalkeeper, bravery >= 14",1.0,1.0,0.0,10,10
+cheap clinical striker under 21 valued under 5M,1.0,1.0,0.1,10,10

@@ -23,6 +23,7 @@ import sys
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -34,6 +35,7 @@ from scoutrag import (load_and_clean, build_profiles, align_embeddings,
 from scoutrag import llm as scout_llm
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+INDEX_HTML = os.path.join(ROOT, "docs", "index.html")
 CSV_PATH = os.path.join(ROOT, "fmdata24llm.csv")
 PKL_PATH = os.path.join(ROOT, "player_embeddings.pkl")
 EMBED_MODEL_NAME = "all-MiniLM-L6-v2"
@@ -120,6 +122,13 @@ class SearchRequest(BaseModel):
     top_k: int | None = None
     use_llm: bool = True       # use Ollama to rewrite descriptive queries
     make_report: bool = False  # also generate a grounded scouting report
+
+
+@app.get("/")
+def index():
+    """Serve the ScoutRAG web UI (docs/index.html) from the same server, so a
+    single URL (local or tunnelled) serves both the interface and the API."""
+    return FileResponse(INDEX_HTML)
 
 
 @app.get("/health")

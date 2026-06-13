@@ -1,0 +1,5 @@
+*.pdf
+eda_outputs/
+ScoutRAG_Final_Report.docx
+ScoutRAG_Slide_Explainer.docx
+ScoutRAG_CS455_Demo.pptx

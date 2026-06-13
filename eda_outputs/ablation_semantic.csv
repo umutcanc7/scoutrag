@@ -1,0 +1,16 @@
+query,top5_overlap,sem_top5_overall,nosem_top5_overall
+"top 5 clinical, strong and fast strikers",0.43,13.82,13.27
+commanding goalkeeper with great reflexes,0.0,13.52,13.38
+"visionary German playmaker, wage under 200k",0.11,10.93,11.94
+fast right-footed winger under 22 valued unde,0.25,9.96,10.4
+"strong aerial centre-back, heading > 15",0.11,12.21,12.18
+experienced defensive midfielder over 30 with,0.43,12.68,12.79
+"clinical poacher, finishing >= 17",0.43,13.28,13.69
+Argentine playmaker with passing >= 16,0.67,12.78,13.01
+"defensive midfielder, tackling >= 15, aggress",0.67,12.82,12.89
+fast and skillful winger under 23 valued unde,0.0,11.03,10.94
+"tall strong target man, strength >= 15, headi",0.67,12.12,12.48
+physical defensive midfielder over 28,0.11,12.71,12.73
+young left-footed playmaker under 20,0.25,11.74,12.24
+"strong and brave goalkeeper, bravery >= 14",0.43,12.8,13.08
+cheap clinical striker under 21 valued under ,0.0,9.68,9.35

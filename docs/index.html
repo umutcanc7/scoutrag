@@ -260,7 +260,7 @@ const ATTR = {
 const GK_COLS = ["Aer","Cmd","Com","Ecc","Han","Kic","1v1","Pun","Ref","TRO","Thr"];
 const _pcStore = {}; let _pcN = 0;  // per-card record store for the detail modal
 const cfg = {
-  backend: localStorage.getItem('sr_backend') || 'http://localhost:8000',
+  backend: localStorage.getItem('sr_backend') || (location.protocol.startsWith('http') ? location.origin : 'http://localhost:8000'),
   topk: +(localStorage.getItem('sr_topk')||10),
   useLlm: localStorage.getItem('sr_useLlm')!=='0',
   makeReport: localStorage.getItem('sr_report')==='1',

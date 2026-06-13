@@ -1,0 +1,4 @@
+,mean constraint satisfaction,mean #results,zero-result queries
+structured-only,1.0,9.575,0
+vector-only,0.077,10.0,0
+hybrid (ScoutRAG),1.0,9.575,0

@@ -1,9 +1,25 @@
-"""ScoutRAG — HuggingFace Spaces entry point.
+"""ScoutRAG — Gradio demo app.
 
-This file is the HF Spaces entry point (must be named app.py).
-It is identical in logic to app_gradio.py, but:
-  - Uses Anthropic API (ANTHROPIC_API_KEY secret) instead of Ollama
-  - launch() is configured for HF Spaces (server_name="0.0.0.0", no share=True)
+Wraps the EXACT same constrained hybrid retrieval engine used by the notebook and
+the FastAPI backend (scoutrag/core.py + scoutrag/llm.py) in a single-file Gradio
+UI. Running it prints a temporary public https://*.gradio.live link you can send
+to someone so they can try the system in their own browser while this process is
+running on your machine (or in Colab).
+
+Run locally:
+    cd "CS 455 Project"
+    pip install -r requirements.txt
+    python app_gradio.py
+    # -> open the printed local URL, and share the *.gradio.live link
+
+Run in Colab:
+    !pip install -q gradio sentence-transformers faiss-cpu
+    # upload the project (or mount Drive), then:
+    !python app_gradio.py
+
+Everything runs locally. The optional query-routing / report writing uses a local
+Ollama model if one is running; otherwise deterministic rule-based fallbacks are
+used, so the demo works with zero extra setup.
 """
 
 from __future__ import annotations
@@ -27,6 +43,9 @@ CSV_PATH = os.path.join(ROOT, "fmdata24llm.csv")
 PKL_PATH = os.path.join(ROOT, "player_embeddings.pkl")
 EMBED_MODEL_NAME = "all-MiniLM-L6-v2"
 
+# --------------------------------------------------------------------------- #
+# Load engine once at startup (same as backend/app.py)
+# --------------------------------------------------------------------------- #
 STATE: dict = {"df": None, "emb": None, "embed_fn": None, "clubs": None}
 
 
@@ -39,7 +58,7 @@ def _build_embed_fn():
             return model.encode([text], normalize_embeddings=True)[0].astype("float32")
         return embed_query
     except Exception as e:
-        print(f"[app] semantic search disabled: {e}")
+        print(f"[app] semantic search disabled (no sentence-transformers): {e}")
         return None
 
 
@@ -52,9 +71,10 @@ def _load_or_build_embeddings(df):
         import pickle
         from sentence_transformers import SentenceTransformer
     except Exception as e:
-        print(f"[app] cannot build embeddings: {e}")
+        print(f"[app] no embeddings cache and cannot build it: {e}")
         return None
-    print("[app] building embeddings (first run only) ...")
+    print("[app] no embeddings cache — building once (downloads MiniLM the first "
+          "time, takes a couple of minutes) ...")
     model = SentenceTransformer(EMBED_MODEL_NAME)
     vecs = model.encode(df["embed_text"].tolist(), batch_size=64,
                         normalize_embeddings=True, show_progress_bar=True,
@@ -66,9 +86,9 @@ def _load_or_build_embeddings(df):
         full[df["raw_idx"].to_numpy()] = vecs
         with open(PKL_PATH, "wb") as f:
             pickle.dump({"embeddings": full, "model": EMBED_MODEL_NAME, "dim": dim}, f)
-        print(f"[app] saved embeddings -> {PKL_PATH}")
+        print(f"[app] saved embeddings cache -> {PKL_PATH}")
     except Exception as e:
-        print(f"[app] could not save cache: {e}")
+        print(f"[app] built embeddings but could not save cache: {e}")
     return vecs
 
 
@@ -80,12 +100,14 @@ def load_engine():
     STATE["embed_fn"] = _build_embed_fn() if STATE["emb"] is not None else None
     STATE["clubs"] = sorted({c for c in df["Club_Name"].dropna().unique()
                              if isinstance(c, str) and c.strip() not in ("", "-")})
-    api_status = "on ✅" if scout_llm._api_available() else "off (rule-based fallback)"
     print(f"[app] ready: {len(df):,} players | "
           f"semantic={'on' if STATE['embed_fn'] else 'off'} | "
-          f"anthropic api={api_status}")
+          f"anthropic api={'on' if scout_llm._api_available() else 'off'}")
 
 
+# --------------------------------------------------------------------------- #
+# Core query handler — same routing logic as backend/app.py do_search()
+# --------------------------------------------------------------------------- #
 def run_query(query: str, top_k: int, use_llm: bool, make_report: bool) -> dict:
     df = STATE["df"]
     clubs = STATE["clubs"]
@@ -97,6 +119,7 @@ def run_query(query: str, top_k: int, use_llm: bool, make_report: bool) -> dict:
     route = scout_llm.route_query(query) if use_llm else scout_llm._heuristic_route(query)
     intent = route["intent"]
 
+    # INFO: a single named player
     if intent == "info":
         hits = find_players_by_name(df, route["player"] or query, limit=5)
         if len(hits):
@@ -109,9 +132,10 @@ def run_query(query: str, top_k: int, use_llm: bool, make_report: bool) -> dict:
         name_sought = route["player"] or query
         return {"mode": "info", "players": [],
                 "constraints": [f"player lookup: {name_sought}"],
-                "summary": scout_llm.generate_not_found_message(name_sought, route.get("used_llm", False)),
+                "summary": scout_llm.generate_not_found_message(name_sought, route["used_llm"]),
                 "report": None, "grounding": None}
 
+    # SIMILAR: players like a reference player
     if intent == "similar":
         ref = find_players_by_name(df, route["player"] or query, limit=1)
         if len(ref):
@@ -134,8 +158,9 @@ def run_query(query: str, top_k: int, use_llm: bool, make_report: bool) -> dict:
                     "summary": scout_llm.generate_summary(query, records) if records else NO_MATCH_MESSAGE,
                     "report": None, "grounding": None}
 
+    # SEARCH: constrained hybrid retrieval
     rewritten = route["query"] or query
-    used_llm = route.get("used_llm", False) and rewritten.strip().lower() != query.strip().lower()
+    used_llm = route["used_llm"] and rewritten.strip().lower() != query.strip().lower()
     parsed = parse_query(query, known_clubs=clubs)
 
     if used_llm:
@@ -151,6 +176,7 @@ def run_query(query: str, top_k: int, use_llm: bool, make_report: bool) -> dict:
                 parsed["soft_attrs"][col] = direction
                 parsed["trace"].append(f"soft (LLM-assisted): {ATTR_READABLE.get(col, col)}{direction}")
 
+    # bare player name with no constraints -> info card
     if not has_constraints(parsed):
         hits = find_players_by_name(df, query, limit=5)
         if len(hits):
@@ -162,7 +188,7 @@ def run_query(query: str, top_k: int, use_llm: bool, make_report: bool) -> dict:
                     "report": None, "grounding": None}
         return {"mode": "info", "players": [],
                 "constraints": [f"player lookup: {query}"],
-                "summary": scout_llm.generate_not_found_message(query, route.get("used_llm", False)),
+                "summary": scout_llm.generate_not_found_message(query, route["used_llm"]),
                 "report": None, "grounding": None}
 
     if not parsed.get("top_k_explicit"):
@@ -182,6 +208,9 @@ def run_query(query: str, top_k: int, use_llm: bool, make_report: bool) -> dict:
     return out
 
 
+# --------------------------------------------------------------------------- #
+# Presentation helpers
+# --------------------------------------------------------------------------- #
 _TABLE_COLS = ["Player_Name", "Age", "Nationality", "Position", "Club_Name",
                "League", "Foot", "Value_EUR", "Wage_EUR_pm", "Overall", "match_score"]
 
@@ -189,7 +218,9 @@ _TABLE_COLS = ["Player_Name", "Age", "Nationality", "Position", "Club_Name",
 def _records_to_df(records):
     if not records:
         return pd.DataFrame(columns=_TABLE_COLS)
-    rows = [{c: r.get(c) for c in _TABLE_COLS} for r in records]
+    rows = []
+    for r in records:
+        rows.append({c: r.get(c) for c in _TABLE_COLS})
     df = pd.DataFrame(rows, columns=_TABLE_COLS)
     for c in ("Value_EUR", "Wage_EUR_pm"):
         df[c] = df[c].apply(lambda v: f"{v:,.0f}" if pd.notna(v) else "")
@@ -209,9 +240,11 @@ def _grounding_md(grounding) -> str:
         parts.append("_No checkable name/number citations found in the report._")
         return "\n".join(parts)
     if halluc == 0:
-        parts.append(f"✅ All {checked} cited claim(s) supported. Grounding score: **{score:.2f}**.")
+        parts.append(f"✅ All {checked} cited claim(s) are supported by the retrieved "
+                     f"rows. Grounding score: **{score:.2f}**.")
     else:
-        parts.append(f"⚠️ {halluc}/{checked} cited claim(s) not supported. Grounding score: **{score:.2f}**.")
+        parts.append(f"⚠️ {halluc} of {checked} cited claim(s) were **not** supported "
+                     f"by the retrieved rows. Grounding score: **{score:.2f}**.")
     for it in grounding.get("mismatched_facts", []):
         parts.append(f"- ❌ mismatch: {it}")
     for it in grounding.get("unsupported_players", []):
@@ -221,17 +254,22 @@ def _grounding_md(grounding) -> str:
 
 def on_search(query, top_k, use_llm, make_report):
     res = run_query(query, int(top_k), bool(use_llm), bool(make_report))
+
     summary = res.get("summary") or ""
     constraints = res.get("constraints") or []
-    cons_md = ("**Constraints parsed:**\n" + "\n".join(f"- {c}" for c in constraints)
-               if constraints else "")
+    cons_md = ""
+    if constraints:
+        cons_md = "**Constraints parsed:**\n" + "\n".join(f"- {c}" for c in constraints)
+
     table = _records_to_df(res.get("players"))
+
     report_md = ""
     if res.get("report"):
         report_md = "### Scouting report\n\n" + res["report"]
         g = _grounding_md(res.get("grounding"))
         if g:
             report_md += "\n\n" + g
+
     summary_block = (f"**Mode:** `{res.get('mode')}`\n\n{summary}"
                      + (("\n\n" + cons_md) if cons_md else ""))
     return summary_block, table, report_md
@@ -259,7 +297,8 @@ def build_ui():
         gr.Markdown(
             "# ScoutRAG\n"
             "Constrained hybrid retrieval (structured-symbolic + semantic) over a "
-            "Football Manager 2024 export, with post-generation grounding verification.\n\n"
+            "Football Manager 2024 export, with post-generation grounding "
+            "verification.\n\n"
             "> ⚠️ **Data note:** FM24 ratings are designer-set *game* attributes, "
             "not real-world scouting data. This is a prototype validation dataset."
         )
@@ -287,10 +326,15 @@ def build_ui():
                   [summary_out, table_out, report_out])
         query.submit(on_search, [query, top_k, use_llm, make_report],
                      [summary_out, table_out, report_out])
+
     return demo
 
 
-load_engine()
-demo = build_ui()
-demo.launch(server_name="0.0.0.0",
-            server_port=int(os.environ.get("PORT", 7860)))
+if __name__ == "__main__":
+    load_engine()
+    ui = build_ui()
+    # share=True prints a temporary public *.gradio.live link (valid ~72h) that
+    # tunnels to this process. Set GRADIO_SHARE=0 to run local-only.
+    share = os.environ.get("GRADIO_SHARE", "1") != "0"
+    ui.launch(share=share, theme=gr.themes.Soft(), server_name="0.0.0.0",
+              server_port=int(os.environ.get("PORT", 7860)))
